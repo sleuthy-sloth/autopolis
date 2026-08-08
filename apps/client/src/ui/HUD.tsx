@@ -1,15 +1,19 @@
-import type { SpatialGrid } from '@autopolis/core';
-import type { SceneStats, TileSelection } from '../engine/CityScene';
-import type { ServerStatus } from '../useServerTick';
+import type { CityStats, SpatialGrid } from '@autopolis/core';
+import type { OverlayMode, SceneStats, TileSelection } from '../engine/CityScene';
+import type { ServerStatus } from '../useEngine';
 
 interface HUDProps {
   grid: SpatialGrid;
   seed: number;
   selection: TileSelection | null;
   stats: SceneStats | null;
+  cityStats: CityStats | null;
   serverStatus: ServerStatus;
   serverTick: number | null;
+  overlay: OverlayMode;
+  hasResources: boolean;
   onNewSeed: () => void;
+  onCycleOverlay: () => void;
 }
 
 function fpsClass(fps: number | undefined): string {
@@ -19,18 +23,43 @@ function fpsClass(fps: number | undefined): string {
   return 'fps ok';
 }
 
-export function HUD({ grid, seed, selection, stats, serverStatus, serverTick, onNewSeed }: HUDProps) {
+export function HUD({
+  grid,
+  seed,
+  selection,
+  stats,
+  cityStats,
+  serverStatus,
+  serverTick,
+  overlay,
+  hasResources,
+  onNewSeed,
+  onCycleOverlay,
+}: HUDProps) {
   const serverClass =
     serverStatus === 'connected' ? 'ok' : serverStatus === 'connecting' ? 'warn' : 'bad';
+  const overlayLabel = overlay === 'none' ? 'off' : overlay;
 
   return (
     <>
       <header className="hud-top">
         <div className="brand">
           <span className="brand-mark">◈</span> AUTOPOLIS
-          <span className="phase-tag">PHASE 1 · SPATIAL GRID ENGINE</span>
+          <span className="phase-tag">PHASE 2 · SIMULATION CORE</span>
         </div>
         <div className="hud-controls">
+          {cityStats && (
+            <span className="chip stats">
+              <strong>{cityStats.population.toLocaleString()}</strong> pop
+              <span className="sep">·</span>
+              <strong>R</strong> {cityStats.zones.residential}
+              <strong className="dim">C</strong> {cityStats.zones.commercial}
+              <strong className="dim">I</strong> {cityStats.zones.industrial}
+              <span className="sep">·</span>⚡ {(cityStats.powerCoverage * 100).toFixed(0)}%
+              <span className="sep">·</span>💧 {(cityStats.waterCoverage * 100).toFixed(0)}%
+              <span className="sep">·</span>🛣 {(cityStats.infrastructure.roadTiles).toLocaleString()}
+            </span>
+          )}
           <span className="chip">
             seed <strong>{seed}</strong>
           </span>
@@ -39,6 +68,14 @@ export function HUD({ grid, seed, selection, stats, serverStatus, serverTick, on
               {grid.width}×{grid.height}
             </strong>
           </span>
+          <button
+            className="btn"
+            onClick={onCycleOverlay}
+            disabled={!hasResources}
+            title={hasResources ? 'Cycle power/water coverage overlay' : 'Engine offline — no coverage data'}
+          >
+            Overlay: {overlayLabel}
+          </button>
           <button className="btn" onClick={onNewSeed}>
             ⟳ New Seed
           </button>

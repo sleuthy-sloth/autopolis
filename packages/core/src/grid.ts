@@ -88,6 +88,11 @@ export class SpatialGrid {
     }
   }
 
+  /** Fill every tile with one type (used by World.reset before regenerating terrain). */
+  fill(type: TileType): void {
+    this.types.fill(type);
+  }
+
   /** rows = y, cols = x — the canonical matrix form for LLM agent snapshots. */
   toMatrix(): number[][] {
     const rows: number[][] = [];
@@ -97,6 +102,15 @@ export class SpatialGrid {
       rows.push(row);
     }
     return rows;
+  }
+
+  /** Count of each tile code across the grid: { [code]: n }. */
+  countTypes(): Record<number, number> {
+    const counts: Record<number, number> = {};
+    for (let i = 0; i < this.types.length; i++) {
+      counts[this.types[i]] = (counts[this.types[i]] ?? 0) + 1;
+    }
+    return counts;
   }
 
   serialize(): SerializedGrid {

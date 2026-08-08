@@ -23,6 +23,14 @@ export interface SceneStats {
   tiles: number;
 }
 
+/** Resource coverage visualization mode. */
+export type OverlayMode = 'none' | 'power' | 'water';
+
+export interface OverlayResources {
+  power: number[];
+  water: number[];
+}
+
 export interface SceneCallbacks {
   onSelection?: (selection: TileSelection | null) => void;
   onStats?: (stats: SceneStats) => void;
@@ -44,6 +52,18 @@ function tileHeight(type: TileType, elevation: number): number {
       return 0.34 + elevation * 0.8;
     case TILE_TYPES.DIRT:
       return 0.22 + elevation * 0.55;
+    case TILE_TYPES.ROAD:
+      return 0.14;
+    case TILE_TYPES.RESIDENTIAL:
+      return 0.3 + elevation * 0.35;
+    case TILE_TYPES.COMMERCIAL:
+      return 0.4 + elevation * 0.4;
+    case TILE_TYPES.INDUSTRIAL:
+      return 0.45 + elevation * 0.45;
+    case TILE_TYPES.POWER_PLANT:
+      return 1.1;
+    case TILE_TYPES.WATER_TOWER:
+      return 1.1;
     default:
       return 0.2 + elevation * 0.55;
   }
@@ -51,19 +71,24 @@ function tileHeight(type: TileType, elevation: number): number {
 
 export class CityScene {
   private readonly container: HTMLElement;
-  private readonly grid: SpatialGrid;
+  private grid: SpatialGrid;
   private readonly callbacks: SceneCallbacks;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly controls: OrbitControls;
-  private readonly tilesMesh: THREE.InstancedMesh;
+  private tilesMesh: THREE.InstancedMesh;
   private readonly selectionRing: THREE.LineSegments;
+  private gridLinesMesh: THREE.LineSegments;
+  private overlayMesh: THREE.InstancedMesh | null = null;
+  private overlayMode: OverlayMode = 'none';
+  private overlayResources: OverlayResources | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2(-2, -2); // off-screen until first move
   private readonly baseColors: THREE.Color[] = [];
   private readonly timer = new THREE.Timer();
   private hoverIndex: number | null = null;
+  private selection: TileSelection | null = null;
   private frames = 0;
   private fpsWindow = 0;
   private disposed = false;
@@ -146,9 +171,9 @@ export class CityScene {
 
     // World geometry
     this.tilesMesh = this.buildTilesMesh();
-    const gridLines = this.buildGridLines();
+    this.gridLinesMesh = this.buildGridLines();
     this.selectionRing = this.buildSelectionRing();
-    this.scene.add(this.tilesMesh, gridLines, this.selectionRing);
+    this.scene.add(this.tilesMesh, this.gridLinesMesh, this.selectionRing);
 
     this.bindEvents();
     this.renderer.setAnimationLoop(() => this.loop());
@@ -276,6 +301,92 @@ export class CityScene {
     this.callbacks.onSelection?.({ x, y, type, name: tileName(type), elevation });
   }
 
+  /**
+   * Swap in a new authoritative grid (server state). Rebuilds tile geometry in
+   * place — camera, controls, and lighting are untouched, so god-mode watching
+   * is never interrupted by city updates.
+   */
+  replaceGrid(grid: SpatialGrid): void {
+    this.grid = grid;
+    this.clearHover();
+    this.selection = null;
+    this.selectionRing.visible = false;
+    this.callbacks.onSelection?.(null);
+
+    this.scene.remove(this.tilesMesh, this.gridLinesMesh);
+    this.disposeObject(this.tilesMesh);
+    this.disposeObject(this.gridLinesMesh);
+    this.tilesMesh = this.buildTilesMesh();
+    this.gridLinesMesh = this.buildGridLines();
+    this.scene.add(this.tilesMesh, this.gridLinesMesh);
+
+    if (this.overlayMode !== 'none') {
+      this.rebuildOverlay(this.overlayMode, this.overlayResources);
+    }
+  }
+
+  /** Toggle the resource coverage overlay ('none' | 'power' | 'water'). */
+  setOverlay(mode: OverlayMode, resources: OverlayResources | null): void {
+    this.overlayMode = mode;
+    this.overlayResources = resources;
+    this.rebuildOverlay(mode, resources);
+  }
+
+  private rebuildOverlay(mode: OverlayMode, resources: OverlayResources | null): void {
+    if (this.overlayMesh) {
+      this.scene.remove(this.overlayMesh);
+      this.disposeObject(this.overlayMesh);
+      this.overlayMesh = null;
+    }
+    if (mode === 'none' || !resources) return;
+
+    const { width, height } = this.grid;
+    const cx = width / 2;
+    const cz = height / 2;
+    const data = mode === 'power' ? resources.power : resources.water;
+
+    const geometry = new THREE.BoxGeometry(0.94, 0.02, 0.94);
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+    });
+    const mesh = new THREE.InstancedMesh(geometry, material, width * height);
+    const matrix = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const quat = new THREE.Quaternion();
+    const color = new THREE.Color();
+
+    this.grid.forEach((x, y, type, elevation) => {
+      const index = this.grid.index(x, y);
+      const v = data[index] ?? 0;
+      const h = tileHeight(type, elevation);
+      pos.set(x - cx, h + 0.02, y - cz);
+      matrix.compose(pos, quat, scale);
+      mesh.setMatrixAt(index, matrix);
+      // red (unserviced) → green (covered)
+      color.setRGB(0.9 - 0.7 * v, 0.15 + 0.6 * v, 0.2 - 0.08 * v);
+      mesh.setColorAt(index, color);
+    });
+
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.overlayMesh = mesh;
+    this.scene.add(mesh);
+  }
+
+  private disposeObject(obj: THREE.Object3D): void {
+    obj.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.material) {
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) m.dispose();
+      }
+    });
+  }
+
   dispose(): void {
     this.disposed = true;
     this.renderer.setAnimationLoop(null);
@@ -295,6 +406,7 @@ export class CityScene {
         for (const m of mats) m.dispose();
       }
     });
+    this.overlayMesh = null;
     this.renderer.dispose();
     if (el.parentElement === this.container) this.container.removeChild(el);
   }

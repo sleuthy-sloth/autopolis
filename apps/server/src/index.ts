@@ -1,8 +1,9 @@
 /**
  * Autopolis Core Engine — entrypoint.
  *
- * HTTP:  GET /health → JSON engine status
- * WS:    broadcast { type: 'tick', tick } every second
+ * HTTP:  GET /health → JSON engine status + city stats
+ * WS:    world:state on connect/grid-change, tick heartbeats at 1 Hz;
+ *        accepts { type: 'reset' } from clients
  *
  * Port via PORT env (default 8788), world seed via SEED env (default 1337).
  */
@@ -18,25 +19,25 @@ const world = new World(SEED);
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        ok: true,
-        service: 'autopolis-core',
-        tick: world.tick,
-        grid: { width: world.grid.width, height: world.grid.height, seed: world.seed },
-      }),
-    );
+    res.end(JSON.stringify(world.health()));
     return;
   }
   res.writeHead(404, { 'content-type': 'application/json' });
   res.end(JSON.stringify({ ok: false, error: 'not found' }));
 });
 
-const broadcast = attachWs(server);
+const broadcast = attachWs(server, {
+  onConnect: () => world.stateMessage(),
+  onReset: () => {
+    world.reset();
+    broadcast(world.stateMessage());
+  },
+});
 
 setInterval(() => {
-  world.step();
-  broadcast({ type: 'tick', tick: world.tick });
+  const changed = world.step();
+  if (changed) broadcast(world.stateMessage());
+  else broadcast({ type: 'tick', tick: world.tick });
 }, 1000);
 
 server.listen(PORT, () => {

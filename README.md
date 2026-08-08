@@ -80,8 +80,15 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
   - React HUD: tile inspector, live FPS/tick telemetry, seed regeneration
   - Node engine skeleton: 1 Hz tick loop, `/health`, WebSocket broadcast
   - **19/19 unit tests**, verified at **60 fps with 4,096 instanced tiles**
-- [ ] **Phase 2 — Simulation Core & Pathfinding**: road network graph + A* for vehicles & citizens,
-      power/water distribution, zoning (R/C/I) resource grids
+- [x] **Phase 2 — Simulation Core & Pathfinding** *(shipped)*
+  - `RoadGraph` — road network graph (adjacency, connectivity components)
+  - **A\* pathfinding** — binary-heap, deterministic; vehicles (4-dir road graph) & citizens (8-dir terrain)
+  - **Resource grids** — power & water flood from plants/towers with range attenuation; blocked by water
+  - **Zoning R/C/I** — residential / commercial / industrial districts + population & coverage stats
+  - `CityDevelopment` — deterministic seeded growth: ring roads, avenues, districts, plants appear over ticks
+  - Server-authoritative sync: engine broadcasts full `world:state` (grid + stats + coverage), client renders
+  - God-mode controls: `New Seed` resets the world live over WebSocket; power/water coverage overlay
+  - **47/47 unit tests**; city at tick 12: pop 1,932 · 220 road tiles · 1 road component · 28% power / 22% water
 - [ ] **Phase 3 — Agent Orchestration**: async agent tick runner, Zod-validated JSON actions,
       prompt templates for City Planner & Developer agents wired to state updates
 - [ ] **Phase 4 — God-Mode HUD**: live agent action newsfeed, budget/population charts,
@@ -140,8 +147,8 @@ The viewport runs standalone; when the engine is up (it is, via `npm run dev`) t
 ## 🎲 Determinism by Design
 
 The simulation core never touches `Math.random()`. Every run derives from a seed through
-`mulberry32` PRNG and avalanche-hashed value noise — **same seed, same island, every time**.
-This is what makes the future agent pipeline reproducible: any agent run can be replayed
+`mulberry32` PRNG and avalanche-hashed value noise — **same seed, same island, same city, every time**.
+This is what makes the agent pipeline (Phase 3) reproducible: any agent run can be replayed
 tick-for-tick, and the server stays the single source of truth.
 
 ```ts
@@ -151,6 +158,26 @@ generateTerrain(a, { seed: 1337 });
 generateTerrain(b, { seed: 1337 });
 a.equals(b); // true — guaranteed
 ```
+
+## 🏗️ Simulation Core (Phase 2)
+
+The city **grows itself** on a deterministic schedule — roads first, then districts:
+
+| Tick | What the city does |
+|---|---|
+| 1 | Ring road + 4 arterial avenues |
+| 2 | Power plant + water tower, residential ring, commercial core, industrial band |
+| 5 | Outer ring road (beltway) |
+| 6 | Outer residential ring |
+| 8–9 | Second power plant + water tower — capacity grows with the city |
+| 10 | Arterial extensions to the island edge |
+
+- **Roads** pave anything except water (beltways don't stop for hills); downtown flattens stone.
+- **Power & water** flood from plants/towers through land, attenuating over range (max 14 tiles),
+  blocked by water — click **`Overlay: off → power → water`** to see live coverage (green = served).
+- **A\*** routes vehicles on the road graph (4-dir) and citizens across terrain (8-dir, diagonal √2).
+- The engine is authoritative: it broadcasts full world state over WebSocket; the viewport just renders.
+  `⟳ New Seed` regenerates the world through the same channel.
 
 ## 🌐 Mirrors
 
