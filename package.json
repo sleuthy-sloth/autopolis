@@ -1,0 +1,24 @@
+{
+  "name": "autopolis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autopolis — emergent AI city simulation. 3-tier: Three.js viewport / deterministic simulation core / LLM agent pipeline.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n engine,viewport -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "npm run dev -w @autopolis/client",
+    "dev:server": "npm run dev -w @autopolis/server",
+    "build": "npm run build -w @autopolis/client && npm run typecheck -w @autopolis/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @autopolis/core"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "concurrently": "^10.0.4",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,246 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0e13;
+  --panel: rgba(16, 22, 30, 0.82);
+  --panel-border: rgba(120, 160, 200, 0.18);
+  --text: #dfe7ef;
+  --muted: #7c8b9a;
+  --accent: #ffcf4d;
+  --ok: #4ade80;
+  --warn: #facc15;
+  --bad: #f87171;
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+}
+
+.viewport {
+  position: absolute;
+  inset: 0;
+}
+
+.viewport canvas {
+  display: block;
+}
+
+/* ── top bar ─────────────────────────────────────────── */
+.hud-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(11, 14, 19, 0.9), rgba(11, 14, 19, 0));
+  pointer-events: none;
+  z-index: 10;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.brand-mark {
+  color: var(--accent);
+}
+
+.phase-tag {
+  font-weight: 400;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.hud-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.chip {
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  backdrop-filter: blur(6px);
+}
+
+.chip strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.btn {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.server {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 4px 8px;
+  backdrop-filter: blur(6px);
+}
+
+.server .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.server.ok {
+  color: var(--ok);
+}
+.server.ok .dot {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+}
+.server.warn {
+  color: var(--warn);
+}
+.server.warn .dot {
+  background: var(--warn);
+}
+.server.bad {
+  color: var(--bad);
+}
+.server.bad .dot {
+  background: var(--bad);
+}
+
+/* ── tile inspector ──────────────────────────────────── */
+.hud-inspector {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  min-width: 190px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+
+.hud-inspector h3 {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.hud-inspector dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.hud-inspector dt {
+  color: var(--muted);
+}
+
+.hud-inspector dd {
+  text-align: right;
+  color: var(--text);
+}
+
+.hud-inspector .muted {
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ── telemetry ───────────────────────────────────────── */
+.hud-telemetry {
+  position: absolute;
+  top: 64px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 12px;
+  z-index: 10;
+  text-align: right;
+}
+
+.fps.ok {
+  color: var(--ok);
+}
+.fps.warn {
+  color: var(--warn);
+}
+.fps.bad {
+  color: var(--bad);
+}
+
+/* ── hint ────────────────────────────────────────────── */
+.hud-hint {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  opacity: 0.7;
+  z-index: 10;
+}
+
+.muted {
+  color: var(--muted);
+}
