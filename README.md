@@ -7,6 +7,7 @@
 [![Three.js](https://img.shields.io/badge/Three.js-r185-000000?logo=threedotjs&logoColor=white)](https://threejs.org)
 [![Node](https://img.shields.io/badge/Node-25-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Codeberg](https://img.shields.io/badge/Codeberg-mirror-2185D0?logo=codeberg&logoColor=white)](https://codeberg.org/sleuthy-sloth/autopolis)
 
 > A city where the Mayor, City Planner, private Developers, and thousands of Citizens
 > are **AI agents** — building roads, zoning districts, and arguing about budgets in real time.
@@ -153,8 +154,13 @@ a.equals(b); // true — guaranteed
 
 ## 🌐 Mirrors
 
-- **GitHub** (primary): https://github.com/sleuthy-sloth/autopolis
-- **Codeberg**: mirrored — `git push` fans out to both remotes automatically.
+| Host | URL | Role |
+|---|---|---|
+| **GitHub** | https://github.com/sleuthy-sloth/autopolis | Primary |
+| **Codeberg** | https://codeberg.org/sleuthy-sloth/autopolis | Mirror — `git push origin main` fans out to both automatically |
+
+Both hosts stay in sync with a single push: the `origin` remote carries dual push URLs
+(GitHub via SSH, Codeberg via HTTPS/credential-manager).
 
 ## 📜 License
 
