@@ -12,23 +12,33 @@ import { RoadGraph } from './roadgraph';
 
 export const RESOURCE_MAX_RANGE = 14;
 
+export interface ResourceRangeOptions {
+  powerRange?: number;
+  waterRange?: number;
+}
+
 export class ResourceGrids {
   readonly power: Float32Array;
   readonly water: Float32Array;
+  powerRange: number;
+  waterRange: number;
   private width: number;
   private height: number;
 
-  constructor(grid: SpatialGrid) {
+  constructor(grid: SpatialGrid, opts: ResourceRangeOptions = {}) {
     this.width = grid.width;
     this.height = grid.height;
     this.power = new Float32Array(grid.width * grid.height);
     this.water = new Float32Array(grid.width * grid.height);
+    this.powerRange = opts.powerRange ?? RESOURCE_MAX_RANGE;
+    this.waterRange = opts.waterRange ?? RESOURCE_MAX_RANGE;
   }
 
   /** BFS flood from all sources of one resource through non-water land. */
   private flood(
     grid: SpatialGrid,
     sourceType: number,
+    maxRange: number,
     out: Float32Array,
   ): void {
     const { width, height } = grid;
@@ -49,10 +59,10 @@ export class ResourceGrids {
     for (let head = 0; head < queue.length; head++) {
       const idx = queue[head];
       const d = dist[idx];
-      if (d >= RESOURCE_MAX_RANGE) continue;
+      if (d >= maxRange) continue;
       const x = idx % width;
       const y = Math.floor(idx / width);
-      const coverage = 1 - d / RESOURCE_MAX_RANGE;
+      const coverage = 1 - d / maxRange;
       if (coverage > out[idx]) out[idx] = coverage;
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const nx = x + dx;
@@ -70,8 +80,8 @@ export class ResourceGrids {
   recompute(grid: SpatialGrid): void {
     this.width = grid.width;
     this.height = grid.height;
-    this.flood(grid, TILE_TYPES.POWER_PLANT, this.power);
-    this.flood(grid, TILE_TYPES.WATER_TOWER, this.water);
+    this.flood(grid, TILE_TYPES.POWER_PLANT, this.powerRange, this.power);
+    this.flood(grid, TILE_TYPES.WATER_TOWER, this.waterRange, this.water);
   }
 }
 

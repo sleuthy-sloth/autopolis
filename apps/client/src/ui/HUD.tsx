@@ -9,6 +9,8 @@ interface HUDProps {
   stats: SceneStats | null;
   life: { citizens: number; cars: number; ships: number; trains: number } | null;
   cityStats: CityStats | null;
+  city: { treasury: number; taxRate: number } | null;
+  events: string[];
   serverStatus: ServerStatus;
   serverTick: number | null;
   overlay: OverlayMode;
@@ -31,6 +33,8 @@ export function HUD({
   stats,
   life,
   cityStats,
+  city,
+  events,
   serverStatus,
   serverTick,
   overlay,
@@ -78,6 +82,12 @@ export function HUD({
                   <span className="sep">·</span> 🚆 {life.trains}
                 </>
               )}
+            </span>
+          )}
+          {city && (
+            <span className="chip">
+              ¤ {Math.round(city.treasury).toLocaleString()}
+              <span className="sep">·</span> tax <strong>{city.taxRate}%</strong>
             </span>
           )}
           <span className="chip">
@@ -137,6 +147,19 @@ export function HUD({
           {stats ? `${stats.fps.toFixed(0)} fps` : '-- fps'}
         </span>
         {stats && <span className="muted">{stats.tiles.toLocaleString()} tiles</span>}
+      </div>
+
+      <div className="hud-feed" aria-label="newsfeed">
+        <h3>NEWSFEED</h3>
+        {events.length === 0 ? (
+          <p className="muted">Agents have not acted yet…</p>
+        ) : (
+          <ul>
+            {events.slice(0, 4).map((e, i) => (
+              <li key={e + i}>{e}</li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <footer className="hud-hint">drag · orbit &nbsp;·&nbsp; scroll · zoom &nbsp;·&nbsp; click · inspect</footer>

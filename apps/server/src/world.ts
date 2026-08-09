@@ -1,10 +1,10 @@
 /**
  * World — server-authoritative simulation state.
  *
- * Phase 2: the 1 Hz step() now drives deterministic city development (roads,
- * zones, infrastructure), rebuilds the road graph, and recomputes power/water
- * resource grids + city statistics whenever the grid changes. The client is
- * purely a viewport: it applies whatever `stateMessage()` emits.
+ * Phase 2/2.5: deterministic city development on a slow schedule.
+ * Phase 3: agents (LLM or mock) issue Zod-validated actions via applyAction,
+ * which the executor applies to the grid. Treasury, tax rate, and a rolling
+ * event log (the newsfeed) live here.
  */
 import {
   SpatialGrid,
@@ -14,14 +14,24 @@ import {
   ResourceGrids,
   computeCityStats,
   TILE_TYPES,
+  buildBriefing,
+  type AgentAction,
+  type CityBriefing,
   type CityStats,
 } from '@autopolis/core';
+import { ActionExecutor, type ExecutionResult } from './agents/executor';
+
+const STARTING_TREASURY = 1000;
+const EVENT_LOG_CAP = 20;
 
 export class World {
   readonly grid: SpatialGrid;
   seed: number;
   tick = 0;
   stats: CityStats;
+  treasury = STARTING_TREASURY;
+  taxRate = 9;
+  events: string[] = [];
   private dev: CityDevelopment;
   private roadGraph: RoadGraph;
   private resources: ResourceGrids;
@@ -31,7 +41,7 @@ export class World {
     this.grid = new SpatialGrid(width, height);
     generateTerrain(this.grid, { seed });
     this.dev = new CityDevelopment(seed);
-    this.resources = new ResourceGrids(this.grid);
+    this.resources = new ResourceGrids(this.grid, { powerRange: 14, waterRange: 14 });
     this.roadGraph = RoadGraph.fromGrid(this.grid);
     this.stats = computeCityStats(this.grid, this.resources, this.roadGraph);
   }
@@ -44,6 +54,8 @@ export class World {
     this.tick++;
     const changed = this.dev.step(this.grid, this.tick);
     if (changed) this.refresh();
+    // Tax income: population × rate, tick by tick.
+    this.treasury += Math.floor((this.stats.population * this.taxRate) / 200);
     return changed;
   }
 
@@ -55,7 +67,42 @@ export class World {
     this.grid.elevations.fill(0);
     generateTerrain(this.grid, { seed: this.seed });
     this.dev = new CityDevelopment(this.seed);
+    this.treasury = STARTING_TREASURY;
+    this.taxRate = 9;
+    this.events = [];
     this.refresh();
+  }
+
+  /**
+   * Validate + apply an agent action. Returns the execution result; on success
+   * the treasury is debited, the event log updated, and derived state refreshed
+   * if the grid changed. Failures are recorded too (agents should see them).
+   */
+  applyAction(action: AgentAction): ExecutionResult {
+    const result = new ActionExecutor(this.grid).execute(action);
+    if (result.ok) {
+      if (action.action === 'ADJUST_TAX_RATE') {
+        this.taxRate = Number(action.metadata.tax_rate);
+      } else if (action.action === 'UPGRADE_INFRASTRUCTURE') {
+        const target = String(action.metadata.target ?? '').toLowerCase();
+        if (target === 'power') this.resources.powerRange = Math.min(30, this.resources.powerRange + 3);
+        else if (target === 'water') this.resources.waterRange = Math.min(30, this.resources.waterRange + 3);
+        else {
+          return { ok: false, message: `invalid upgrade target '${target}'`, cost: 0, changed: false };
+        }
+        this.resources.recompute(this.grid);
+        this.stats = computeCityStats(this.grid, this.resources, this.roadGraph);
+      }
+      this.treasury -= result.cost;
+      if (result.changed) this.refresh();
+    }
+    this.pushEvent(`${action.agent_id}: ${result.message}${result.ok && result.cost > 0 ? ` (−${result.cost}¤)` : ''}`);
+    return result;
+  }
+
+  /** Compressed agent-facing view of the city. */
+  briefing(): CityBriefing {
+    return buildBriefing(this.grid, this.stats, this.treasury, this.taxRate, this.events, this.tick);
   }
 
   /** Rebuild derived state (road graph, resource grids, stats) from the grid. */
@@ -65,13 +112,20 @@ export class World {
     this.stats = computeCityStats(this.grid, this.resources, this.roadGraph);
   }
 
-  /** Full client-sync payload — grid + stats + resource coverage arrays. */
+  private pushEvent(text: string): void {
+    this.events.unshift(`t${this.tick} ${text}`);
+    if (this.events.length > EVENT_LOG_CAP) this.events.length = EVENT_LOG_CAP;
+  }
+
+  /** Full client-sync payload — grid + stats + resource coverage + city ledger. */
   stateMessage(): Record<string, unknown> {
     return {
       type: 'world:state',
       tick: this.tick,
       grid: this.grid.serialize(),
       stats: this.stats,
+      city: { treasury: this.treasury, taxRate: this.taxRate },
+      events: this.events.slice(0, 8),
       resources: {
         power: Array.from(this.resources.power),
         water: Array.from(this.resources.water),
@@ -85,6 +139,7 @@ export class World {
       service: 'autopolis-core',
       tick: this.tick,
       grid: { width: this.grid.width, height: this.grid.height, seed: this.seed, biome: this.grid.biome },
+      city: { treasury: this.treasury, taxRate: this.taxRate },
       stats: {
         population: this.stats.population,
         zones: this.stats.zones,

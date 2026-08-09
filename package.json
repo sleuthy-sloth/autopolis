@@ -13,7 +13,7 @@
     "dev:server": "npm run dev -w @autopolis/server",
     "build": "npm run build -w @autopolis/client && npm run typecheck -w @autopolis/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @autopolis/core"
+    "test": "npm run test -w @autopolis/core && npm run test -w @autopolis/server"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

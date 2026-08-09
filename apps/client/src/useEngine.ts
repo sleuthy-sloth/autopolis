@@ -8,6 +8,8 @@ export interface EngineMessage {
   grid?: unknown;
   stats?: unknown;
   resources?: unknown;
+  city?: unknown;
+  events?: unknown;
 }
 
 /**

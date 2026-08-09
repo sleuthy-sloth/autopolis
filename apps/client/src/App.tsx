@@ -11,6 +11,8 @@ interface ServerWorld {
   grid: SpatialGrid;
   stats: CityStats | null;
   resources: { power: number[]; water: number[] } | null;
+  city: { treasury: number; taxRate: number } | null;
+  events: string[];
 }
 
 export default function App() {
@@ -38,6 +40,8 @@ export default function App() {
       grid: SpatialGrid.deserialize(msg.grid as Parameters<typeof SpatialGrid.deserialize>[0]),
       stats: (msg.stats as CityStats | undefined) ?? null,
       resources: (msg.resources as { power: number[]; water: number[] } | undefined) ?? null,
+      city: (msg.city as { treasury: number; taxRate: number } | undefined) ?? null,
+      events: (msg.events as string[] | undefined) ?? [],
     });
   }, []);
 
@@ -90,6 +94,8 @@ export default function App() {
         stats={stats}
         life={life}
         cityStats={serverWorld?.stats ?? null}
+        city={serverWorld?.city ?? null}
+        events={serverWorld?.events ?? []}
         serverStatus={status}
         serverTick={tick}
         overlay={overlay}

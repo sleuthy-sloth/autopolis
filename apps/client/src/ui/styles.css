@@ -229,6 +229,47 @@ body {
   color: var(--bad);
 }
 
+/* ── newsfeed ────────────────────────────────────────── */
+.hud-feed {
+  position: absolute;
+  right: 16px;
+  bottom: 44px;
+  width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.hud-feed h3 {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.hud-feed ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud-feed li {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text);
+  opacity: 0.92;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── hint ────────────────────────────────────────────── */
 .hud-hint {
   position: absolute;

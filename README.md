@@ -102,10 +102,22 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
     **trains** run the rail network with engine + trailing cars
   - Entity persistence: population keeps walking across growth updates (no respawn flicker)
   - **55/55 unit tests**; live-verified across all three biomes at 60 fps
-- [ ] **Phase 3 — Agent Orchestration**: async agent tick runner, Zod-validated JSON actions,
-      prompt templates for City Planner & Developer agents wired to state updates
-- [ ] **Phase 4 — God-Mode HUD**: live agent action newsfeed, budget/population charts,
-      global modifiers (tax rates, weather, natural disasters)
+- [x] **Phase 3 — Agent Orchestration** *(shipped — mock mode live, LLM-ready)*
+  - **Zod action contract** — the mission schema: `EXTEND_ROAD / SET_ZONING / BUILD_STRUCTURE /
+    UPGRADE_INFRASTRUCTURE / ADJUST_TAX_RATE`, strict JSON, markdown-defensive parser
+  - **ActionExecutor** — validated actions applied via the same placement laws as the
+    deterministic city; per-tile costs (road 10¤, zoning 5¤, structure 200¤)
+  - **Async agent loop** — decisions every 15 ticks from tick 120; never blocks the 1 Hz loop;
+    one retry on invalid model output
+  - **Mock agent** (default) — deterministic, schema-valid decisions: roads → zones → downtown → taxes;
+    **OpenRouter-ready** — set `AUTOPOLIS_LLM_API_KEY` and the City Planner reasons via a real model
+    (free tiers like `deepseek-chat:free` work)
+  - **CityBriefing** — 8×8 dominance map + stats + treasury, so prompts stay small
+  - **Treasury & newsfeed** — tax income per tick, action costs, rolling event log in the HUD
+  - **77/77 tests**; live-verified: agent paved roads, zoned districts, and set taxes through the
+    exact pipeline a real LLM will use
+- [ ] **Phase 4 — God-Mode HUD**: budget/population charts, global modifiers
+      (weather, natural disasters) — the newsfeed and treasury already feed it
 
 ## 📁 Repository Layout
 
@@ -229,6 +241,41 @@ ring roads arcing together by ~tick 45, zones hugging the streets from tick 40, 
 tick 150, and slow sprawl forever after. Same seed → same city, tick for tick.
 
 Debug hook: `window.__autopolisLife.debugPositions()` → `{ citizens, ships }` grid coords.
+
+## 🤖 Agent Orchestration (Phase 3)
+
+![Autopolis Phase 3 — agent newsfeed live](docs/phase3-newsfeed.png)
+
+Agents now make city decisions through a strict, validated pipeline:
+
+```text
+1 Hz tick ──► CityDevelopment (deterministic base growth)
+        └──► every 15 ticks (from tick 120): AgentRunner
+                briefing (8×8 map + stats + treasury) ──► decide
+                ├─ MockAgent (default, deterministic)
+                └─ LLM (OpenRouter / Ollama / DeepSeek) when AUTOPOLIS_LLM_API_KEY is set
+                ──► Zod-validate (one retry) ──► ActionExecutor ──► grid + treasury + newsfeed
+```
+
+**Wiring a real model** (OpenRouter free tier works — zero infra):
+
+```bash
+export AUTOPOLIS_LLM_API_KEY=sk-or-...          # from openrouter.ai
+export AUTOPOLIS_LLM_MODEL=deepseek/deepseek-chat-v3-0324:free   # or any model id
+npm run dev:server
+```
+
+Without a key the **MockAgent** drives the same pipeline — every action in the newsfeed
+(`t180 city_planner_01: paved 5 road tile(s) (−50¤)`) traveled the exact schema → executor →
+treasury path a real model will use.
+
+| Piece | Where | Role |
+|---|---|---|
+| `AgentActionSchema` (Zod) | `packages/core/src/schema.ts` | The mission contract, enforced |
+| `ActionExecutor` | `apps/server/src/agents/executor.ts` | Applies actions via city placement laws, per-tile costs |
+| `CityBriefing` | `packages/core/src/briefing.ts` | 8×8 dominance map + stats — the prompt input |
+| `AgentRunner` | `apps/server/src/agents/runner.ts` | Async cadence, never blocks the 1 Hz loop |
+| `llm.ts` / `prompt.ts` / `mock.ts` | `apps/server/src/agents/` | OpenAI-compatible client, planner prompts, deterministic mock |
 
 ## 🌐 Mirrors
 

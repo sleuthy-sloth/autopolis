@@ -31,7 +31,7 @@ const DIRS = [
 ] as const;
 
 /** Zones & infrastructure may claim grassland, dirt, sand, or cleared forest. */
-function isDevelopable(type: TileType): boolean {
+export function isDevelopableType(type: TileType): boolean {
   return (
     type === TILE_TYPES.GRASS ||
     type === TILE_TYPES.DIRT ||
@@ -41,7 +41,7 @@ function isDevelopable(type: TileType): boolean {
 }
 
 /** Roads may blast through any land except water and existing rails. */
-function isPavable(type: TileType): boolean {
+export function isPavableType(type: TileType): boolean {
   return type !== TILE_TYPES.WATER && type !== TILE_TYPES.RAIL;
 }
 
@@ -208,7 +208,7 @@ export class CityDevelopment {
   }
 
   private placeZone(grid: SpatialGrid, x: number, y: number, type: TileType): void {
-    if (grid.inBounds(x, y) && isDevelopable(grid.get(x, y))) {
+    if (grid.inBounds(x, y) && isDevelopableType(grid.get(x, y))) {
       grid.set(x, y, type);
       this.changed = true;
     }
@@ -224,7 +224,7 @@ export class CityDevelopment {
   private pave(grid: SpatialGrid, x: number, y: number): void {
     if (!grid.inBounds(x, y)) return;
     const cur = grid.get(x, y);
-    if (cur === TILE_TYPES.ROAD || !isPavable(cur)) return;
+    if (cur === TILE_TYPES.ROAD || !isPavableType(cur)) return;
     grid.set(x, y, TILE_TYPES.ROAD);
     this.changed = true;
   }
