@@ -20,6 +20,7 @@ import {
   type CityStats,
 } from '@autopolis/core';
 import { ActionExecutor, type ExecutionResult } from './agents/executor';
+import { generateCityEvents, stateOf, districtName, type EventState } from './events';
 
 const STARTING_TREASURY = 1000;
 const EVENT_LOG_CAP = 20;
@@ -35,6 +36,7 @@ export class World {
   private dev: CityDevelopment;
   private roadGraph: RoadGraph;
   private resources: ResourceGrids;
+  private eventState: EventState | null = null;
 
   constructor(seed: number, width = 64, height = 64) {
     this.seed = seed;
@@ -56,6 +58,7 @@ export class World {
     if (changed) this.refresh();
     // Tax income: population × rate, tick by tick.
     this.treasury += Math.floor((this.stats.population * this.taxRate) / 200);
+    this.observe();
     return changed;
   }
 
@@ -70,6 +73,7 @@ export class World {
     this.treasury = STARTING_TREASURY;
     this.taxRate = 9;
     this.events = [];
+    this.eventState = null;
     this.refresh();
   }
 
@@ -96,8 +100,42 @@ export class World {
       this.treasury -= result.cost;
       if (result.changed) this.refresh();
     }
-    this.pushEvent(`${action.agent_id}: ${result.message}${result.ok && result.cost > 0 ? ` (−${result.cost}¤)` : ''}`);
+    const where = this.districtFor(action);
+    this.pushEvent(
+      `${action.agent_id === 'god' ? '🏛 God' : action.agent_id}: ${result.message}${where}${result.ok && result.cost > 0 ? ` (−${result.cost}¤)` : ''}`,
+    );
+    this.observe();
     return result;
+  }
+
+  /** Public event injection (god-mode commands etc.). */
+  logEvent(text: string): void {
+    this.pushEvent(text);
+  }
+
+  /** Emit news headlines when notable state transitions occur. */
+  private observe(): void {
+    const next = stateOf(this.stats, this.railTiles(), this.treasury);
+    if (this.eventState) {
+      for (const headline of generateCityEvents(this.eventState, next)) {
+        this.pushEvent(headline);
+      }
+    }
+    this.eventState = next;
+  }
+
+  private railTiles(): number {
+    return this.stats.infrastructure.railTiles;
+  }
+
+  private districtFor(action: AgentAction): string {
+    // District context only makes sense for grid-located actions.
+    if (action.action !== 'EXTEND_ROAD' && action.action !== 'SET_ZONING' && action.action !== 'BUILD_STRUCTURE') {
+      return '';
+    }
+    const [x, y] = action.coordinates.from;
+    if (x < 0 || y < 0 || x >= this.grid.width || y >= this.grid.height) return '';
+    return ` in ${districtName(x, y, this.grid.width, this.grid.height)}`;
   }
 
   /** Compressed agent-facing view of the city. */

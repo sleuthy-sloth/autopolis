@@ -72,6 +72,18 @@ const broadcast = attachWs(server, {
     world.reset();
     broadcast(world.stateMessage());
   },
+  onGodAction: (action) => {
+    const godAction = { ...action, agent_id: 'god' };
+    world.applyAction(godAction);
+    broadcast(world.stateMessage());
+  },
+  onCommand: (command, amount) => {
+    if (command === 'grant' && typeof amount === 'number' && amount > 0) {
+      world.treasury += amount;
+      world.logEvent(`🏛 God: treasury boosted by ${Math.round(amount).toLocaleString()}¤`);
+      broadcast(world.stateMessage());
+    }
+  },
 });
 
 setInterval(() => {

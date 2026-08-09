@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/world';
 import { makeAction, TILE_TYPES, BRIEFING_GRID } from '@autopolis/core';
+import { generateCityEvents, districtName, type EventState } from '../src/events';
 
 function worldAt(ticks: number): World {
   const w = new World(1337);
@@ -124,5 +125,80 @@ describe('World agent integration', () => {
     );
     // 32,24 is on the inner ring; the corridor connects to it.
     expect(w.grid.get(32, 30)).toBe(TILE_TYPES.ROAD);
+  });
+
+  it('god actions flow through the same contract and read as God in the feed', () => {
+    const w = worldAt(130);
+    w.applyAction(
+      makeAction({
+        agent_id: 'god',
+        action: 'SET_ZONING',
+        coordinates: { from: [30, 34], to: [32, 36] },
+        metadata: { zone: 'RESIDENTIAL' },
+        reasoning: 'god-mode directive',
+      }),
+    );
+    expect(w.grid.get(31, 35)).toBe(TILE_TYPES.RESIDENTIAL);
+    expect(w.events[0]).toContain('🏛 God');
+  });
+
+  it('logs treasury grants', () => {
+    const w = worldAt(10);
+    const before = w.treasury;
+    w.logEvent('🏛 God: treasury boosted by 1,000¤');
+    w.treasury += 1000;
+    expect(w.treasury).toBe(before + 1000);
+    expect(w.events[0]).toContain('boosted');
+  });
+});
+
+describe('city events', () => {
+  const base: EventState = {
+    population: 90,
+    powerPlants: 1,
+    waterTowers: 1,
+    powerCoverage: 0.3,
+    waterCoverage: 0.3,
+    roadComponents: 2,
+    railTiles: 0,
+    treasury: 500,
+  };
+
+  it('announces population milestones', () => {
+    const events = generateCityEvents(base, { ...base, population: 120 });
+    expect(events.some((e) => e.includes('Population passes 100'))).toBe(true);
+  });
+
+  it('announces new infrastructure and rail launch', () => {
+    const events = generateCityEvents(base, { ...base, powerPlants: 2, railTiles: 12 });
+    expect(events.some((e) => e.includes('new power plant'))).toBe(true);
+    expect(events.some((e) => e.includes('Commuter rail'))).toBe(true);
+  });
+
+  it('announces coverage and connectivity breakthroughs', () => {
+    const events = generateCityEvents(base, {
+      ...base,
+      powerCoverage: 0.6,
+      waterCoverage: 0.55,
+      roadComponents: 1,
+    });
+    expect(events.some((e) => e.includes('50%'))).toBe(true);
+    expect(events.some((e) => e.includes('fully connected'))).toBe(true);
+  });
+
+  it('announces treasury thresholds', () => {
+    const events = generateCityEvents(base, { ...base, treasury: 2500 });
+    expect(events.some((e) => e.includes('2,000'))).toBe(true);
+  });
+
+  it('is quiet when nothing notable changes', () => {
+    expect(generateCityEvents(base, { ...base, population: 91 })).toHaveLength(0);
+  });
+
+  it('names districts by compass from center', () => {
+    expect(districtName(32, 32, 64, 64)).toBe('downtown');
+    expect(districtName(60, 32, 64, 64)).toBe('the east district');
+    expect(districtName(32, 60, 64, 64)).toBe('the south district');
+    expect(districtName(2, 2, 64, 64)).toBe('the northwest district');
   });
 });

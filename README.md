@@ -116,6 +116,15 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
   - **Treasury & newsfeed** — tax income per tick, action costs, rolling event log in the HUD
   - **77/77 tests**; live-verified: agent paved roads, zoned districts, and set taxes through the
     exact pipeline a real LLM will use
+- [x] **Phase 3.5 — City Events & God Mode** *(shipped)*
+  - **The city's newsroom**: headlines derived from state — population milestones
+    (100/250/500/1k/2.5k/5k), plants & towers coming online, coverage breakthroughs
+    (50%/75%), rail launch, fully-connected network, treasury thresholds
+  - **God Mode** — you are an agent: tax slider, treasury grants, quick-build actions
+    (⚡💧🛣🏠🏢🏭) issued through the SAME Zod contract as the LLM planner —
+    same executor, same costs, same newsfeed (`🏛 God: …`), and your actions trigger
+    city events (build a plant → "⚡ A new power plant comes online.")
+  - Agent actions now name their district ("in the northwest district")
 - [ ] **Phase 4 — God-Mode HUD**: budget/population charts, global modifiers
       (weather, natural disasters) — the newsfeed and treasury already feed it
 

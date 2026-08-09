@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SpatialGrid, generateTerrain, type CityStats } from '@autopolis/core';
 import { CityScene, type OverlayMode, type SceneStats, type TileSelection } from './engine/CityScene';
 import { HUD } from './ui/HUD';
+import { GodPanel, type GodActionInput } from './ui/GodPanel';
 import { useEngine, type EngineMessage } from './useEngine';
 
 const GRID_SIZE = 64;
@@ -45,7 +46,7 @@ export default function App() {
     });
   }, []);
 
-  const { status, tick, send } = useEngine(ENGINE_WS_URL, handleState);
+  const { status, tick, send, godAction, command } = useEngine(ENGINE_WS_URL, handleState);
 
   // Mount the scene once; grid swaps happen in place via replaceGrid.
   useEffect(() => {
@@ -84,6 +85,14 @@ export default function App() {
     setOverlay((m) => (m === 'none' ? 'power' : m === 'power' ? 'water' : 'none'));
   };
 
+  const godActionHandler = (a: GodActionInput): void => {
+    if (status === 'connected') godAction(a);
+  };
+
+  const grantTreasury = (): void => {
+    if (status === 'connected') command('grant', 1000);
+  };
+
   return (
     <div className="app">
       <div ref={mountRef} className="viewport" />
@@ -102,6 +111,12 @@ export default function App() {
         hasResources={serverWorld?.resources !== null}
         onNewSeed={newSeed}
         onCycleOverlay={cycleOverlay}
+      />
+      <GodPanel
+        grid={activeGrid}
+        taxRate={serverWorld?.city?.taxRate ?? null}
+        onAction={godActionHandler}
+        onGrant={grantTreasury}
       />
     </div>
   );

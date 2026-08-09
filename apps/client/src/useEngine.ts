@@ -17,11 +17,25 @@ export interface EngineMessage {
  * - `tick` heartbeats arrive every second once the city is static.
  * - `world:state` carries the authoritative grid + stats + resource grids.
  * - `send({ type: 'reset' })` asks the engine to regenerate the world.
+ * - `godAction(action)` issues a human AgentAction through the same Zod
+ *   contract the LLM agents use (executor, treasury, newsfeed all apply).
+ * - `command('grant', amount)` injects treasury.
  */
 export function useEngine(
   url: string,
   onState: (msg: EngineMessage) => void,
-): { status: ServerStatus; tick: number | null; send: (msg: unknown) => void } {
+): {
+  status: ServerStatus;
+  tick: number | null;
+  send: (msg: unknown) => void;
+  godAction: (action: {
+    action: string;
+    coordinates: { from: [number, number]; to: [number, number] };
+    metadata?: Record<string, string | number | boolean>;
+    reasoning?: string;
+  }) => void;
+  command: (command: string, amount?: number) => void;
+} {
   const [status, setStatus] = useState<ServerStatus>('connecting');
   const [tick, setTick] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -62,5 +76,24 @@ export function useEngine(
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   }, []);
 
-  return { status, tick, send };
+  const godAction = useCallback(
+    (action: {
+      action: string;
+      coordinates: { from: [number, number]; to: [number, number] };
+      metadata?: Record<string, string | number | boolean>;
+      reasoning?: string;
+    }): void => {
+      send({ type: 'god', action: { agent_id: 'god', ...action } });
+    },
+    [send],
+  );
+
+  const command = useCallback(
+    (command: string, amount?: number): void => {
+      send({ type: 'command', command, amount });
+    },
+    [send],
+  );
+
+  return { status, tick, send, godAction, command };
 }
