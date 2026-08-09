@@ -36,7 +36,7 @@ export function GodPanel({ grid, taxRate, weather, onAction, onGrant, onWeather,
     onAction({ action, coordinates: { from, to }, metadata, reasoning: 'god-mode directive' });
 
   return (
-    <aside className="god-panel">
+    <aside className="god-panel panel">
       <h3>🏛 GOD MODE</h3>
 
       <label className="god-row">

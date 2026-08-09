@@ -111,6 +111,7 @@ export default function App() {
   return (
     <div className="app">
       <div ref={mountRef} className="viewport" />
+      <div className="vignette" />
       <HUD
         grid={activeGrid}
         seed={serverWorld?.grid.seed ?? seed}

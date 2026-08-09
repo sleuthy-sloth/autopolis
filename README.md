@@ -138,6 +138,17 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
   - Animated water (per-tile wave bobbing, still instanced)
   - Glassmorphism HUD: PHASE 4 dashboard layout, weather chip, god-mode panel
     with weather/disaster controls
+- [x] **AAA polish pass** *(shipped)*
+  - **Depth everywhere**: per-face vertex-shaded tiles (lit tops, shaded sides),
+    baked per-instance ambient occlusion (crevices next to taller neighbors),
+    real PCF soft shadows from the sun across the whole city
+  - **Layered water** — deep dark base + translucent animated surface with sun
+    specular; hover tile outline; retuned bloom + cinematic vignette
+  - **Color-graded palette** (richer grass, deeper water, darker roads)
+  - **UI design system** — unified glass panels, pill chips, tabular numerals,
+    consistent type scale, no overlapping panels (fps in the top bar, inspector
+    in the left column)
+  - Live-verified: 60 fps with shadows+bloom+4096 tiles, zero console errors
 - [x] **Rust core port** *(shipped — parity-verified twin)*
   - `rust/autopolis-core` — dependency-free Rust port of `packages/core`: seeded RNG,
     value-noise fBm, three-biome terrain, road graph, binary-heap A*, resource flood,

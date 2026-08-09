@@ -42,19 +42,19 @@ export const TILE_NAMES: Record<TileType, string> = {
 };
 
 export const TILE_PALETTE: Record<TileType, string> = {
-  [TILE_TYPES.WATER]: '#2f6f9f',
+  [TILE_TYPES.WATER]: '#2a5f8f',
   [TILE_TYPES.SAND]: '#d8c48a',
-  [TILE_TYPES.GRASS]: '#6fae4f',
-  [TILE_TYPES.FOREST]: '#3f7d3a',
-  [TILE_TYPES.STONE]: '#9aa1a8',
+  [TILE_TYPES.GRASS]: '#5d9e45',
+  [TILE_TYPES.FOREST]: '#3a7a36',
+  [TILE_TYPES.STONE]: '#8f969d',
   [TILE_TYPES.DIRT]: '#8a6d4b',
-  [TILE_TYPES.ROAD]: '#4a5058',
-  [TILE_TYPES.RESIDENTIAL]: '#6fa8dc',
-  [TILE_TYPES.COMMERCIAL]: '#e6c15c',
+  [TILE_TYPES.ROAD]: '#3a3f45',
+  [TILE_TYPES.RESIDENTIAL]: '#d9c9a3',
+  [TILE_TYPES.COMMERCIAL]: '#d9b45a',
   [TILE_TYPES.INDUSTRIAL]: '#c98a5e',
   [TILE_TYPES.POWER_PLANT]: '#a55eea',
   [TILE_TYPES.WATER_TOWER]: '#45aaf2',
-  [TILE_TYPES.RAIL]: '#6b5b3e',
+  [TILE_TYPES.RAIL]: '#4a4030',
 };
 
 export const TILE_TYPE_COUNT = Object.keys(TILE_TYPES).length;

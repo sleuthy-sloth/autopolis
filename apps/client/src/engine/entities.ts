@@ -117,6 +117,7 @@ export class CityLife {
     const material = modelMaterial();
     const make = (kind: ModelKind, count: number): THREE.InstancedMesh => {
       const mesh = new THREE.InstancedMesh(models[kind], material, count);
+      mesh.castShadow = true;
       this.meshes.push(mesh);
       scene.add(mesh);
       return mesh;

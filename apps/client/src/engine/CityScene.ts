@@ -2,9 +2,10 @@
  * CityScene — Three.js viewport for Autopolis.
  *
  * Performance strategy: the entire tile grid is ONE InstancedMesh (one draw call
- * for 4k+ tiles), with per-instance color and transforms. Hover/selection mutate
- * instance colors in place — no geometry churn, no rebuilds. Raycasting reuses a
- * single Raycaster against the same instanced mesh (instanceId → grid coords).
+ * for 4k+ tiles), with per-instance color and transforms. Depth comes from a
+ * baked per-face vertex shade (top lit, sides dark) multiplied by per-instance
+ * ambient occlusion (crevices next to taller neighbors) — fully instanced, zero
+ * per-frame cost. A real shadow map grounds buildings, cars, and people.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -59,6 +60,22 @@ const SKIES: Record<Weather, { top: string; horizon: string; hemi: number; sun: 
 
 const RAIN_COUNT = 900;
 
+/** Per-face vertex shade: top 1.0, sides ~0.62, bottom ~0.42. */
+function buildShadedBoxGeometry(): THREE.BufferGeometry {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const shade = y > 0.49 ? 1.0 : y < -0.49 ? 0.42 : 0.62;
+    colors[i * 3] = shade;
+    colors[i * 3 + 1] = shade;
+    colors[i * 3 + 2] = shade;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
 export class CityScene {
   private readonly container: HTMLElement;
   private grid: SpatialGrid;
@@ -93,6 +110,8 @@ export class CityScene {
   private readonly hemiLight: THREE.HemisphereLight;
   private readonly sunLight: THREE.DirectionalLight;
   private waterIndices: number[] = [];
+  private waterSurfaceMesh: THREE.InstancedMesh | null = null;
+  private readonly hoverOutline: THREE.LineSegments;
   private readonly rainPoints: THREE.Points;
   private readonly rainVelocities: Float32Array;
   private readonly rainBounds: { x: number; z: number; top: number };
@@ -147,6 +166,8 @@ export class CityScene {
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
     // Sky — gradient background that tracks the weather.
@@ -177,8 +198,20 @@ export class CityScene {
     this.scene.add(this.hemiLight);
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, SKIES.clear.sun);
     this.sunLight.position.set(camDist * 0.6, camDist * 1.4, camDist * 0.8);
+    this.sunLight.castShadow = true;
+    this.sunLight.shadow.mapSize.set(2048, 2048);
+    const sh = this.sunLight.shadow.camera;
+    const s = extent * 0.72;
+    sh.left = -s;
+    sh.right = s;
+    sh.top = s;
+    sh.bottom = -s;
+    sh.near = 1;
+    sh.far = extent * 4;
+    this.sunLight.shadow.bias = -0.0004;
+    this.sunLight.shadow.normalBias = 0.03;
     this.scene.add(this.sunLight);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.16));
 
     // Rain — a falling particle field over the city, hidden until weather asks.
     const rainGeo = new THREE.BufferGeometry();
@@ -206,7 +239,7 @@ export class CityScene {
     // Postprocessing: subtle bloom + vignette-free tone mapping pass.
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.24, 0.7, 0.82);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.32, 0.62, 0.72);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
 
@@ -214,6 +247,7 @@ export class CityScene {
     this.tilesMesh = this.buildTilesMesh();
     this.gridLinesMesh = this.buildGridLines();
     this.selectionRing = this.buildSelectionRing();
+    this.hoverOutline = this.buildHoverOutline();
     this.structures = buildStructures(this.grid);
     this.cityLife = new CityLife(this.scene, this.grid);
     // Debug/verification hook — lets the console sample live entity positions.
@@ -222,6 +256,7 @@ export class CityScene {
       this.tilesMesh,
       this.gridLinesMesh,
       this.selectionRing,
+      this.hoverOutline,
       ...this.structures.meshes,
     );
     this.emitLife();
@@ -269,10 +304,11 @@ export class CityScene {
     const { width, height } = this.grid;
     const cx = width / 2;
     const cz = height / 2;
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const geometry = buildShadedBoxGeometry();
+    const material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
     const mesh = new THREE.InstancedMesh(geometry, material, width * height);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.receiveShadow = true;
 
     const matrix = new THREE.Matrix4();
     const pos = new THREE.Vector3();
@@ -281,6 +317,11 @@ export class CityScene {
     const color = new THREE.Color();
     this.waterIndices = [];
 
+    const topOf = (x: number, y: number): number => {
+      const t = this.grid.get(x, y);
+      return tileHeight(t, this.grid.getElevation(x, y));
+    };
+
     this.grid.forEach((x, y, type, elevation) => {
       const index = this.grid.index(x, y);
       const h = tileHeight(type, elevation);
@@ -288,17 +329,65 @@ export class CityScene {
       scale.set(0.94, Math.max(h, 0.02), 0.94);
       matrix.compose(pos, quat, scale);
       mesh.setMatrixAt(index, matrix);
-      if (type === TILE_TYPES.WATER) this.waterIndices.push(index);
 
+      // Per-instance: palette × jitter × baked AO (crevices next to taller neighbors).
       const jitter = 0.88 + hash2(x, y, this.grid.seed ^ 0x5bd1e995) * 0.24;
-      color.set(TILE_PALETTE[type]).multiplyScalar(jitter);
+      let ao = 1;
+      const neighborTop = Math.max(topOf(x + 1, y), topOf(x - 1, y), topOf(x, y + 1), topOf(x, y - 1));
+      if (neighborTop > h) ao = 1 - Math.min(0.45, (neighborTop - h) * 0.9);
+      color.set(TILE_PALETTE[type]).multiplyScalar(jitter * ao);
+      if (type === TILE_TYPES.WATER) color.multiplyScalar(0.78);
       this.baseColors[index] = color.clone();
       mesh.setColorAt(index, color);
+      if (type === TILE_TYPES.WATER) this.waterIndices.push(index);
     });
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.buildWaterSurface();
     return mesh;
+  }
+
+  /** Translucent animated surface layer over deep water. */
+  private buildWaterSurface(): void {
+    if (this.waterSurfaceMesh) {
+      this.scene.remove(this.waterSurfaceMesh);
+      this.waterSurfaceMesh.geometry.dispose();
+      (this.waterSurfaceMesh.material as THREE.Material).dispose();
+      this.waterSurfaceMesh = null;
+    }
+    if (this.waterIndices.length === 0) return;
+    const { width, height } = this.grid;
+    const cx = width / 2;
+    const cz = height / 2;
+    const material = new THREE.MeshPhongMaterial({
+      color: 0x5fb8e8,
+      transparent: true,
+      opacity: 0.82,
+      shininess: 90,
+      specular: 0x88aacc,
+      depthWrite: false,
+    });
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.02, 0.9), material, this.waterIndices.length);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    const matrix = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const tint = new THREE.Color();
+    this.waterIndices.forEach((index, slot) => {
+      const x = index % width;
+      const y = Math.floor(index / width);
+      pos.set(x - cx, 0.085, y - cz);
+      matrix.compose(pos, quat, scale);
+      mesh.setMatrixAt(slot, matrix);
+      tint.setScalar(0.85 + hash2(x, y, 0x77aa) * 0.3);
+      mesh.setColorAt(slot, tint);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.waterSurfaceMesh = mesh;
+    this.scene.add(mesh);
   }
 
   private buildGridLines(): THREE.LineSegments {
@@ -324,6 +413,14 @@ export class CityScene {
     const ring = new THREE.LineSegments(geo, mat);
     ring.visible = false;
     return ring;
+  }
+
+  private buildHoverOutline(): THREE.LineSegments {
+    const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.0, 1.0, 1.0));
+    const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
+    const outline = new THREE.LineSegments(geo, mat);
+    outline.visible = false;
+    return outline;
   }
 
   private bindEvents(): void {
@@ -356,22 +453,31 @@ export class CityScene {
     }
   }
 
-  /** Gentle waves on water tiles — a handful of matrix updates per frame. */
+  /** Gentle waves on water tiles — base + translucent surface layers. */
   private animateWater(elapsed: number): void {
     if (this.waterIndices.length === 0) return;
     const { width, height } = this.grid;
     const cx = width / 2;
     const cz = height / 2;
-    for (const index of this.waterIndices) {
+    for (let slot = 0; slot < this.waterIndices.length; slot++) {
+      const index = this.waterIndices[slot];
       const x = index % width;
       const y = Math.floor(index / width);
-      const bob = Math.sin(elapsed * 1.6 + hash2(x, y, 0x9e37) * Math.PI * 2) * 0.025;
-      this.waterDummy.position.set(x - cx, 0.055 + bob, y - cz);
-      this.waterDummy.scale.set(0.94, 0.06, 0.94);
+      const phase = hash2(x, y, 0x9e37) * Math.PI * 2;
+      const bob = Math.sin(elapsed * 1.6 + phase) * 0.025;
+      this.waterDummy.position.set(x - cx, 0.03 + bob * 0.6, y - cz);
+      this.waterDummy.scale.set(0.94, 0.05, 0.94);
       this.waterDummy.updateMatrix();
       this.tilesMesh.setMatrixAt(index, this.waterDummy.matrix);
+      if (this.waterSurfaceMesh) {
+        this.waterDummy.position.set(x - cx, 0.085 + bob, y - cz);
+        this.waterDummy.scale.set(0.9, 0.02, 0.9);
+        this.waterDummy.updateMatrix();
+        this.waterSurfaceMesh.setMatrixAt(slot, this.waterDummy.matrix);
+      }
     }
     this.tilesMesh.instanceMatrix.needsUpdate = true;
+    if (this.waterSurfaceMesh) this.waterSurfaceMesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Rain fall + storm lightning flashes. */
@@ -408,6 +514,14 @@ export class CityScene {
     this.hoverIndex = index;
     if (index !== null) {
       this.tilesMesh.setColorAt(index, this.baseColors[index].clone().multiply(HOVER_TINT));
+      const { width, height } = this.grid;
+      const x = index % width;
+      const y = Math.floor(index / width);
+      const h = tileHeight(this.grid.get(x, y), this.grid.getElevation(x, y));
+      this.hoverOutline.position.set(x - width / 2, h + 0.52, y - height / 2);
+      this.hoverOutline.visible = true;
+    } else {
+      this.hoverOutline.visible = false;
     }
     if (this.tilesMesh.instanceColor) this.tilesMesh.instanceColor.needsUpdate = true;
     this.renderer.domElement.style.cursor = index !== null ? 'pointer' : 'default';
@@ -419,6 +533,7 @@ export class CityScene {
       if (this.tilesMesh.instanceColor) this.tilesMesh.instanceColor.needsUpdate = true;
       this.hoverIndex = null;
     }
+    this.hoverOutline.visible = false;
   }
 
   private selectHovered(): void {

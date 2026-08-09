@@ -78,6 +78,8 @@ export function buildStructures(grid: SpatialGrid): Structures {
     const count = counts.get(kind) ?? 0;
     const mesh = new THREE.InstancedMesh(models[kind], material, Math.max(count, 1));
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     meshes.push(mesh);
     return mesh;
   };

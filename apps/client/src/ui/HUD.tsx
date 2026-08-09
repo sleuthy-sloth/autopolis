@@ -21,13 +21,6 @@ interface HUDProps {
   onCycleOverlay: () => void;
 }
 
-function fpsClass(fps: number | undefined): string {
-  if (fps === undefined) return 'muted';
-  if (fps < 30) return 'fps bad';
-  if (fps < 55) return 'fps warn';
-  return 'fps ok';
-}
-
 export function HUD({
   grid,
   seed,
@@ -54,7 +47,7 @@ export function HUD({
       <div className="hud-top">
         <div className="brand">
           <span className="brand-mark">◈</span> AUTOPOLIS{' '}
-          <span className="phase-tag">PHASE 4 · GOD-MODE DASHBOARD</span>
+          <span className="phase-tag">PHASE 4 · AAA POLISH</span>
         </div>
         <div className="hud-controls">
           {cityStats && (
@@ -93,6 +86,11 @@ export function HUD({
               <span className="sep">·</span> tax <strong>{city.taxRate}%</strong>
             </span>
           )}
+          {stats && (
+            <span className={`chip fps ${stats.fps < 30 ? 'bad' : stats.fps < 55 ? 'warn' : 'ok'}`}>
+              {stats.fps.toFixed(0)} fps · {stats.tiles.toLocaleString()} tiles
+            </span>
+          )}
           <span className="chip">
             biome <strong>{grid.biome}</strong>
           </span>
@@ -129,7 +127,7 @@ export function HUD({
         </div>
       </div>
 
-      <aside className="hud-inspector">
+      <aside className="hud-inspector panel">
         <h3>TILE INSPECTOR</h3>
         {selection ? (
           <dl>
@@ -151,16 +149,9 @@ export function HUD({
         )}
       </aside>
 
-      <div className="hud-telemetry">
-        <span className={fpsClass(stats?.fps)}>
-          {stats ? `${stats.fps.toFixed(0)} fps` : '-- fps'}
-        </span>
-        {stats && <span className="muted">{stats.tiles.toLocaleString()} tiles</span>}
-      </div>
-
       <Charts history={history} />
 
-      <div className="hud-feed" aria-label="newsfeed">
+      <div className="hud-feed panel" aria-label="newsfeed">
         <h3>NEWSFEED</h3>
         {events.length === 0 ? (
           <p className="muted">Agents have not acted yet…</p>

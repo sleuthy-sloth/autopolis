@@ -67,7 +67,7 @@ export function Charts({ history }: { history: HistoryPoint[] }) {
 
   if (history.length < 2) {
     return (
-      <div className="charts-panel">
+      <div className="charts-panel panel">
         <h3>TELEMETRY</h3>
         <p className="muted">Collecting data…</p>
       </div>
@@ -80,7 +80,7 @@ export function Charts({ history }: { history: HistoryPoint[] }) {
   const trMin = Math.min(...treasury);
 
   return (
-    <div className="charts-panel">
+    <div className="charts-panel panel">
       <h3>TELEMETRY</h3>
       <Panel label="POPULATION" right={`${popMax.toLocaleString()}`}>
         {sparkline(pop, 0, Math.max(popMax, 1), '#6fae4f', true)}
