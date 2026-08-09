@@ -44,7 +44,9 @@ export type ParseResult =
 
 /**
  * Parse + validate raw model output. Defensively strips markdown code fences
- * and extracts the first JSON object if the model wrapped it anyway.
+ * and extracts the first JSON object if the model wrapped it anyway. One
+ * tolerant repair: if coordinates.to is missing (models often omit it for
+ * point actions), it is defaulted to coordinates.from before validation.
  */
 export function parseAgentAction(raw: string): ParseResult {
   let text = raw.trim();
@@ -63,7 +65,16 @@ export function parseAgentAction(raw: string): ParseResult {
   } catch {
     return { ok: false, errors: ['output is not valid JSON'] };
   }
-  const result = AgentActionSchema.safeParse(parsed);
+  // Repair: point actions that omitted `to`.
+  const candidate = parsed as { coordinates?: { from?: unknown; to?: unknown } };
+  if (
+    candidate.coordinates &&
+    candidate.coordinates.from !== undefined &&
+    candidate.coordinates.to === undefined
+  ) {
+    candidate.coordinates.to = candidate.coordinates.from;
+  }
+  const result = AgentActionSchema.safeParse(candidate);
   if (result.success) return { ok: true, action: result.data };
   return {
     ok: false,

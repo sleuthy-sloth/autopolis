@@ -39,6 +39,9 @@ export async function completeJson(
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${cfg.apiKey}`,
+        // OpenRouter-recommended attribution headers.
+        'x-title': 'Autopolis',
+        'http-referer': 'https://github.com/sleuthy-sloth/autopolis',
       },
       body: JSON.stringify({
         model: cfg.model,
@@ -55,10 +58,19 @@ export async function completeJson(
       throw new LlmError(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     }
     const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      error?: { message?: string };
+      model?: string;
+      choices?: Array<{ finish_reason?: string; message?: { content?: string } }>;
     };
+    if (data.error) {
+      throw new LlmError(`LLM error: ${data.error.message ?? JSON.stringify(data.error).slice(0, 300)}`);
+    }
     const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new LlmError('LLM returned no content');
+    if (!content) {
+      throw new LlmError(
+        `LLM returned no content (model ${data.model ?? cfg.model}, finish ${data.choices?.[0]?.finish_reason ?? '?'})`,
+      );
+    }
     return content;
   } finally {
     clearTimeout(timer);

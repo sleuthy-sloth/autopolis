@@ -77,6 +77,14 @@ describe('parseAgentAction', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('repairs point actions that omitted coordinates.to', () => {
+    const r = parseAgentAction(
+      '{"agent_id":"p","action":"BUILD_STRUCTURE","coordinates":{"from":[5,5]},"metadata":{"structure":"POWER_PLANT"}}',
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.action.coordinates.to).toEqual([5, 5]);
+  });
+
   it('rejects invalid output with useful errors', () => {
     const bad = parseAgentAction('{"agent_id":"p","action":"FLY_TO_MOON"}');
     expect(bad.ok).toBe(false);

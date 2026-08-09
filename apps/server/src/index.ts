@@ -10,9 +10,10 @@
  * default — free models like deepseek-chat:free work); without a key the
  * deterministic MockAgent keeps the pipeline alive and testable.
  *
- * Env: PORT (8788), SEED (1337), AUTOPOLIS_LLM_BASE_URL, AUTOPOLIS_LLM_API_KEY,
- *      AUTOPOLIS_LLM_MODEL.
+ * Env (loaded from apps/server/.env when present): PORT (8788), SEED (1337),
+ *      AUTOPOLIS_LLM_BASE_URL, AUTOPOLIS_LLM_API_KEY, AUTOPOLIS_LLM_MODEL.
  */
+import 'dotenv/config';
 import http from 'node:http';
 import { parseAgentAction, type AgentAction, type CityBriefing } from '@autopolis/core';
 import { World } from './world';
