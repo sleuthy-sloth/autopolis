@@ -1,0 +1,3 @@
+[workspace]
+members = ["autopolis-core"]
+resolver = "2"

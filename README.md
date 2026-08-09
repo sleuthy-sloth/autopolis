@@ -138,9 +138,17 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
   - Animated water (per-tile wave bobbing, still instanced)
   - Glassmorphism HUD: PHASE 4 dashboard layout, weather chip, god-mode panel
     with weather/disaster controls
-- [ ] **Rust core port** *(in progress — see `rust/autopolis-core`)*: faithful Rust
-      port of `packages/core` with golden-fixture parity tests (same seed ⇒ same
-      world), headless `autopolis-sim` binary; WASM packaging next
+- [x] **Rust core port** *(shipped — parity-verified twin)*
+  - `rust/autopolis-core` — dependency-free Rust port of `packages/core`: seeded RNG,
+    value-noise fBm, three-biome terrain, road graph, binary-heap A*, resource flood,
+    and the full slow-growth city schedule
+  - **Golden-fixture parity tests** — 6/6 passing against fixtures generated from the
+    TypeScript core: RNG sequences byte-identical, terrain tile codes exact, tick-300
+    city counts exact, A* paths identical (same seed ⇒ same world, both languages)
+  - **`autopolis-sim`** — headless single-binary engine: `cargo run --release --bin autopolis-sim [seed]`
+    prints the city JSON; seed 1337 reproduces the TS city tile-for-tile
+  - Next: WASM packaging (`wasm-pack`) so the Node engine can load the Rust core
+    behind the same interface — swap via `AUTOPOLIS_CORE=rust|ts`
 
 ## 📁 Repository Layout
 
