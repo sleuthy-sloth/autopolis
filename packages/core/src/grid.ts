@@ -14,6 +14,7 @@ export interface SerializedGrid {
   width: number;
   height: number;
   seed: number;
+  biome: string;
   types: number[];
   elevations: number[];
 }
@@ -24,6 +25,7 @@ export class SpatialGrid {
   readonly types: Uint8Array;
   readonly elevations: Float32Array;
   seed = 0;
+  biome = 'island';
 
   constructor(width: number, height: number) {
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
@@ -118,6 +120,7 @@ export class SpatialGrid {
       width: this.width,
       height: this.height,
       seed: this.seed,
+      biome: this.biome,
       types: Array.from(this.types),
       elevations: Array.from(this.elevations),
     };
@@ -126,6 +129,7 @@ export class SpatialGrid {
   static deserialize(data: SerializedGrid): SpatialGrid {
     const grid = new SpatialGrid(data.width, data.height);
     grid.seed = data.seed;
+    grid.biome = data.biome ?? 'island';
     grid.types.set(data.types);
     grid.elevations.set(data.elevations);
     return grid;

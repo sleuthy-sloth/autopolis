@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { SpatialGrid, findRoadPath, findTerrainPath, TILE_TYPES } from '../src';
+import {
+  SpatialGrid,
+  findRoadPath,
+  findRailPath,
+  findTerrainPath,
+  findWaterPath,
+  TILE_TYPES,
+} from '../src';
 
 function roadLine(grid: SpatialGrid, x0: number, y0: number, x1: number, y1: number): void {
   for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
@@ -65,6 +72,57 @@ describe('findRoadPath', () => {
     const b = findRoadPath(g, { x: 0, y: 2 }, { x: 2, y: 12 });
     expect(a.path).toEqual(b.path);
     expect(a.cost).toBe(b.cost);
+  });
+});
+
+describe('findWaterPath', () => {
+  it('sails across open ocean', () => {
+    const g = new SpatialGrid(20, 20);
+    for (let y = 0; y < 20; y++) {
+      for (let x = 0; x < 20; x++) g.set(x, y, TILE_TYPES.WATER);
+    }
+    const r = findWaterPath(g, { x: 2, y: 2 }, { x: 17, y: 17 });
+    expect(r.found).toBe(true);
+    for (const p of r.path) expect(g.get(p.x, p.y)).toBe(TILE_TYPES.WATER);
+  });
+
+  it('cannot cross land (lakes stay separate)', () => {
+    const g = new SpatialGrid(20, 20); // all land
+    for (let x = 2; x <= 4; x++) {
+      for (let y = 2; y <= 4; y++) g.set(x, y, TILE_TYPES.WATER); // lake A
+    }
+    for (let x = 14; x <= 16; x++) {
+      for (let y = 14; y <= 16; y++) g.set(x, y, TILE_TYPES.WATER); // lake B
+    }
+    expect(findWaterPath(g, { x: 3, y: 3 }, { x: 15, y: 15 }).found).toBe(false);
+  });
+
+  it('is deterministic', () => {
+    const g = new SpatialGrid(20, 20);
+    for (let y = 0; y < 20; y++) {
+      for (let x = 0; x < 20; x++) g.set(x, y, TILE_TYPES.WATER);
+    }
+    const a = findWaterPath(g, { x: 1, y: 1 }, { x: 18, y: 18 });
+    const b = findWaterPath(g, { x: 1, y: 1 }, { x: 18, y: 18 });
+    expect(a.path).toEqual(b.path);
+  });
+});
+
+describe('findRailPath', () => {
+  it('routes trains along a rail line only', () => {
+    const g = new SpatialGrid(20, 20);
+    for (let y = 8; y <= 10; y++) {
+      for (let x = 2; x <= 17; x++) g.set(x, y, TILE_TYPES.RAIL);
+    }
+    const r = findRailPath(g, { x: 2, y: 9 }, { x: 17, y: 9 });
+    expect(r.found).toBe(true);
+    for (const p of r.path) expect(g.get(p.x, p.y)).toBe(TILE_TYPES.RAIL);
+  });
+
+  it('returns not found off the rails', () => {
+    const g = new SpatialGrid(20, 20);
+    for (let x = 2; x <= 6; x++) g.set(x, 9, TILE_TYPES.RAIL);
+    expect(findRailPath(g, { x: 3, y: 9 }, { x: 15, y: 15 }).found).toBe(false);
   });
 });
 

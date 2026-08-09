@@ -37,7 +37,7 @@ export interface SceneCallbacks {
   onSelection?: (selection: TileSelection | null) => void;
   onStats?: (stats: SceneStats) => void;
   /** Visible population/traffic counts after a grid rebuild. */
-  onLife?: (life: { citizens: number; cars: number }) => void;
+  onLife?: (life: { citizens: number; cars: number; ships: number; trains: number }) => void;
 }
 
 const MAX_DEVICE_PIXEL_RATIO = 2;
@@ -158,9 +158,7 @@ export class CityScene {
       this.tilesMesh,
       this.gridLinesMesh,
       this.selectionRing,
-      this.structures.body,
-      this.structures.roof,
-      this.structures.trees,
+      ...this.structures.meshes,
     );
     this.emitLife();
 
@@ -312,12 +310,12 @@ export class CityScene {
     this.scene.add(this.tilesMesh, this.gridLinesMesh);
 
     // Rebuild the built environment + population choreography for the new grid.
-    this.scene.remove(this.structures.body, this.structures.roof, this.structures.trees);
-    this.disposeObject(this.structures.body);
-    this.disposeObject(this.structures.roof);
-    this.disposeObject(this.structures.trees);
+    for (const mesh of this.structures.meshes) {
+      this.scene.remove(mesh);
+      this.disposeObject(mesh);
+    }
     this.structures = buildStructures(this.grid);
-    this.scene.add(this.structures.body, this.structures.roof, this.structures.trees);
+    this.scene.add(...this.structures.meshes);
     this.cityLife.rebuild(this.grid);
     this.emitLife();
 

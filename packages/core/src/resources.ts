@@ -85,6 +85,7 @@ export interface CityStats {
   };
   infrastructure: {
     roadTiles: number;
+    railTiles: number;
     powerPlants: number;
     waterTowers: number;
     roadComponents: number;
@@ -106,6 +107,7 @@ export function computeCityStats(grid: SpatialGrid, resources: ResourceGrids, ro
   let powerPlants = 0;
   let waterTowers = 0;
   let roadTiles = 0;
+  let railTiles = 0;
   let zoneTiles = 0;
   let poweredZones = 0;
   let wateredResidential = 0;
@@ -114,6 +116,9 @@ export function computeCityStats(grid: SpatialGrid, resources: ResourceGrids, ro
     switch (type) {
       case TILE_TYPES.ROAD:
         roadTiles++;
+        break;
+      case TILE_TYPES.RAIL:
+        railTiles++;
         break;
       case TILE_TYPES.RESIDENTIAL:
         residential++;
@@ -142,7 +147,13 @@ export function computeCityStats(grid: SpatialGrid, resources: ResourceGrids, ro
 
   return {
     zones: { residential, commercial, industrial },
-    infrastructure: { roadTiles, powerPlants, waterTowers, roadComponents: roadGraph.componentCount() },
+    infrastructure: {
+      roadTiles,
+      railTiles,
+      powerPlants,
+      waterTowers,
+      roadComponents: roadGraph.componentCount(),
+    },
     population: residential * 4,
     powerCoverage: zoneTiles > 0 ? poweredZones / zoneTiles : 0,
     waterCoverage: residential > 0 ? wateredResidential / residential : 0,

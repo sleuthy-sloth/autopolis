@@ -90,12 +90,18 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
   - God-mode controls: `New Seed` resets the world live over WebSocket; power/water coverage overlay
   - **47/47 unit tests**; city at tick 12: pop 1,932 · 220 road tiles · 1 road component · 28% power / 22% water
 - [x] **Phase 2.5 — Entity & Visual Layer** *(shipped)*
-  - Instanced buildings with per-district heights + roof slabs (R houses, C towers, I sheds) and pine trees
-  - **Visible population**: up to 400 citizens walk real A* routes — homes → shops → factories, dwell, repeat
-  - **Road traffic**: up to 60 cars drive the road graph with heading-based turns
-  - Entity count scales with server stats (pop / road tiles); choreography is seed-deterministic
-  - Staggered spawning (12/frame) so city-state updates never hitch the 60 fps loop
-  - Everything is `InstancedMesh` — the whole living city is ~8 draw calls total
+  - **Procedural low-poly model library** (GLTF-style, GLTF-swappable): houses with gable roofs,
+    downtown towers with antennas, factories with chimneys, cooling towers, water towers, trees,
+    cars, ships, trains, people — merged geometry + vertex colors, still fully instanced
+  - **Builds from nothing**: the city grows on a slow deterministic schedule — road stub at tick 1,
+    avenues extending every 5s, ring roads arcing together over minutes, zones hugging streets,
+    rails at tick 150+, sprawl forever after
+  - **Terrain biomes** (seed-derived): `island` (ocean ring), `coastal` (sea on one edge),
+    `inland` (no ocean — lakes) — biome shown in the HUD
+  - **Ships** sail coastal water paths whenever the map has water (ocean or lakes);
+    **trains** run the rail network with engine + trailing cars
+  - Entity persistence: population keeps walking across growth updates (no respawn flicker)
+  - **55/55 unit tests**; live-verified across all three biomes at 60 fps
 - [ ] **Phase 3 — Agent Orchestration**: async agent tick runner, Zod-validated JSON actions,
       prompt templates for City Planner & Developer agents wired to state updates
 - [ ] **Phase 4 — God-Mode HUD**: live agent action newsfeed, budget/population charts,
@@ -188,21 +194,41 @@ The city **grows itself** on a deterministic schedule — roads first, then dist
 
 ## 🏙️ Entity & Visual Layer (Phase 2.5)
 
-![Autopolis Phase 2.5 — living city: buildings, trees, pedestrians, traffic](docs/phase2.5-viewport.png)
+![Autopolis Phase 2.5 — inland city: houses, towers, factories, train, lake boats](docs/phase2.5-inland-city.png)
+![Autopolis Phase 2.5 — coastal biome: sea on one edge, ships sailing](docs/phase2.5-coastal.png)
 
 City **state** stays server-truth; the visible life is a deterministic client-side layer seeded from the
-world seed — the same seed always choreographs the same city. Every entity is an `InstancedMesh`, so the
-whole living city is about **8 draw calls at 60 fps**:
+world seed — the same seed always choreographs the same city. All models are **procedural low-poly**
+(houses with gable roofs, towers with antennas, factories with chimneys, ships, trains, people) built as
+merged-geometry + vertex colors, so each model class is one InstancedMesh draw call. They're built to be
+**GLTF-swappable**: swap the builder for a loader and nothing else changes.
 
 | Layer | What you see | Count rule |
 |---|---|---|
-| Buildings | Houses (R), towers (C), sheds (I) + plants/towers — varied heights, roof slabs | 1 per zone tile |
-| Trees | Pines on forest tiles | 1 per forest tile |
+| Buildings | Houses (R), towers (C), factories (I), plants, water towers | 1 per zone tile |
+| Trees | Pine models on forest tiles | 1 per forest tile |
 | Citizens | Capsule people walking real A* trips: home → shop/factory → dwell → repeat | `min(pop / 5, 400)` |
-| Cars | Colored boxes with heading-based turns on the road graph | `min(roads / 4, 60)` |
+| Cars | Tinted low-poly cars with heading-based turns | `min(roads / 4, 60)` |
+| Ships | Boats sailing water paths — only when the map has water | `min(coast / 40, 10)` |
+| Trains | Locomotive + 2 cars on the rail line (laid from tick 150) | `min(rails / 25, 3)` |
 
-Spawns are staggered (12/frame) so city-state updates never hitch the frame; HUD shows the live
-`👥 citizens · 🚗 cars` counts. Debug hook: `window.__autopolisLife.debugPositions()` in the console.
+### Biomes — not every world is an island
+
+| Biome | Shape | Ships? |
+|---|---|---|
+| `island` | Ocean ring, raised interior | ⛵ around the coast |
+| `coastal` | Sea along one edge, land opposite | ⛵ along the shore |
+| `inland` | No ocean — noise-carved lakes | 🛶 on the lakes |
+
+The biome rolls deterministically from the seed (HUD shows it); `⟳ New Seed` rolls a new world.
+
+### Growth — built from nothing
+
+The city emerges over minutes, not seconds: a road stub at tick 1, avenues extending every 5 ticks,
+ring roads arcing together by ~tick 45, zones hugging the streets from tick 40, a rail line from
+tick 150, and slow sprawl forever after. Same seed → same city, tick for tick.
+
+Debug hook: `window.__autopolisLife.debugPositions()` → `{ citizens, ships }` grid coords.
 
 ## 🌐 Mirrors
 

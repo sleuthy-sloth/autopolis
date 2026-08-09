@@ -19,6 +19,8 @@ export const TILE_TYPES = {
   INDUSTRIAL: 9,
   POWER_PLANT: 10,
   WATER_TOWER: 11,
+  // ── Phase 2.5: rail network ──
+  RAIL: 12,
 } as const;
 
 export type TileType = (typeof TILE_TYPES)[keyof typeof TILE_TYPES];
@@ -36,6 +38,7 @@ export const TILE_NAMES: Record<TileType, string> = {
   [TILE_TYPES.INDUSTRIAL]: 'industrial',
   [TILE_TYPES.POWER_PLANT]: 'power_plant',
   [TILE_TYPES.WATER_TOWER]: 'water_tower',
+  [TILE_TYPES.RAIL]: 'rail',
 };
 
 export const TILE_PALETTE: Record<TileType, string> = {
@@ -51,6 +54,7 @@ export const TILE_PALETTE: Record<TileType, string> = {
   [TILE_TYPES.INDUSTRIAL]: '#c98a5e',
   [TILE_TYPES.POWER_PLANT]: '#a55eea',
   [TILE_TYPES.WATER_TOWER]: '#45aaf2',
+  [TILE_TYPES.RAIL]: '#6b5b3e',
 };
 
 export const TILE_TYPE_COUNT = Object.keys(TILE_TYPES).length;

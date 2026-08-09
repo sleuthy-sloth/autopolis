@@ -84,7 +84,7 @@ export class World {
       ok: true,
       service: 'autopolis-core',
       tick: this.tick,
-      grid: { width: this.grid.width, height: this.grid.height, seed: this.seed },
+      grid: { width: this.grid.width, height: this.grid.height, seed: this.seed, biome: this.grid.biome },
       stats: {
         population: this.stats.population,
         zones: this.stats.zones,

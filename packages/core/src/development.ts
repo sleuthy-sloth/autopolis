@@ -1,27 +1,34 @@
 /**
- * CityDevelopment — deterministic, seed-driven city growth.
+ * CityDevelopment — deterministic, seed-driven city growth, built from NOTHING.
  *
- * A scripted stand-in for the Phase 3 Developer/Planner agents: given only
- * (seed, tick) it lays roads, zones, and infrastructure in a believable order:
+ * Growth is deliberately slow and visible: a road stub appears at tick 1, then
+ * avenues extend every few seconds, ring roads arc together over minutes, zones
+ * hug the roads as they appear, and rails/infrastructure arrive later. Every
+ * action is a pure function of (seed, tick, grid state) — same seed, same city,
+ * tick for tick, so the whole emergence can be replayed.
  *
- *   tick 1  → ring road + 4 arterial avenues
- *   tick 2  → power plant + water tower, then residential ring,
- *             commercial core, industrial band
- *   tick 5  → outer ring road
- *   tick 6  → outer residential ring
- *   tick 8  → second power plant (outer ring)
- *   tick 9  → second water tower (outer ring)
- *   tick 10 → arterial extensions (connect to island edge)
- *
- * Pure function of (seed, tick): the same seed reproduces the same city,
- * tick for tick — required for agent replay in Phase 3.
+ * Schedule (1 Hz ticks):
+ *   tick 1        central road stub
+ *   every 5 ticks avenues extend (from tick 5)
+ *   ticks 20-44   inner ring road arcs (r=8)
+ *   every 4 ticks zone patches (from tick 40, road-hugging)
+ *   tick 90/100   power plant + water tower
+ *   ticks 120-144 mid ring arcs (r=11)
+ *   ticks 150+    rail line extends (along one avenue)
+ *   ticks 220/230 second plant + tower
+ *   ticks 240-264 outer ring arcs (r=14)
+ *   ticks 400+    slow sprawl: roads + patches at growing radius
  */
 import { SpatialGrid } from './grid';
 import { hash2 } from './rng';
 import { TILE_TYPES, TileType } from './tiles';
 
-const RING_INNER = 8;
-const RING_OUTER = 14;
+const DIRS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
 
 /** Zones & infrastructure may claim grassland, dirt, sand, or cleared forest. */
 function isDevelopable(type: TileType): boolean {
@@ -33,14 +40,25 @@ function isDevelopable(type: TileType): boolean {
   );
 }
 
-/** Roads may blast through any land except water — beltways don't stop for hills. */
+/** Roads may blast through any land except water and existing rails. */
 function isPavable(type: TileType): boolean {
-  return type !== TILE_TYPES.WATER;
+  return type !== TILE_TYPES.WATER && type !== TILE_TYPES.RAIL;
 }
 
-/** Downtown flattens stone too — the commercial core and power plant claim any land. */
+/** Rails claim undeveloped land and cross roads at grade (level crossings). */
+function isRailable(type: TileType): boolean {
+  return (
+    type === TILE_TYPES.GRASS ||
+    type === TILE_TYPES.DIRT ||
+    type === TILE_TYPES.SAND ||
+    type === TILE_TYPES.FOREST ||
+    type === TILE_TYPES.ROAD
+  );
+}
+
+/** Downtown flattens stone and zones, but never paves roads or rails. */
 function isCorePavable(type: TileType): boolean {
-  return isPavable(type) || type === TILE_TYPES.STONE;
+  return type !== TILE_TYPES.WATER && type !== TILE_TYPES.ROAD && type !== TILE_TYPES.RAIL;
 }
 
 export class CityDevelopment {
@@ -52,156 +70,150 @@ export class CityDevelopment {
   /** Advance development by one tick. Returns true if the grid changed. */
   step(grid: SpatialGrid, tick: number): boolean {
     this.changed = false;
-
     const cx = Math.floor(grid.width / 2);
     const cy = Math.floor(grid.height / 2);
 
-    switch (tick) {
-      case 1:
-        this.ringRoad(grid, cx, cy, RING_INNER);
-        this.avenues(grid, cx, cy, RING_INNER);
-        break;
-      case 2:
-        // Infrastructure first — it must claim grass before the zones do.
-        this.infrastructure(grid, cx, cy);
-        this.residentialRing(grid, cx, cy, 2, RING_INNER - 2);
-        this.commercialCore(grid, cx, cy, 1);
-        this.industrialBand(grid, cx, cy, RING_INNER + 1, RING_INNER + 6);
-        break;
-      case 5:
-        this.ringRoad(grid, cx, cy, RING_OUTER);
-        this.avenues(grid, cx, cy, RING_OUTER);
-        break;
-      case 6:
-        this.residentialRing(grid, cx, cy, RING_INNER + 2, RING_OUTER - 1);
-        break;
-      case 8:
-        this.outerPowerPlant(grid, cx, cy);
-        break;
-      case 9:
-        this.outerWaterTower(grid, cx, cy);
-        break;
-      case 10:
-        this.avenues(grid, cx, cy, RING_OUTER + 1);
-        break;
-    }
+    if (tick === 1) this.stub(grid, cx, cy);
+    if (tick >= 5 && (tick - 5) % 5 === 0) this.extendAvenue(grid, cx, cy, tick);
+    if (this.ringTick(tick, 8, 20)) this.ringArc(grid, cx, cy, 8, this.ringTick(tick, 8, 20) - 1);
+    if (this.ringTick(tick, 11, 120)) this.ringArc(grid, cx, cy, 11, this.ringTick(tick, 11, 120) - 1);
+    if (this.ringTick(tick, 14, 240)) this.ringArc(grid, cx, cy, 14, this.ringTick(tick, 14, 240) - 1);
+    if (tick >= 40 && (tick - 40) % 4 === 0) this.zonePatch(grid, cx, cy, tick);
+    if (tick >= 44 && (tick - 44) % 8 === 0) this.downtown(grid, cx, cy, tick);
+    if (tick === 90) this.placeCore(grid, cx + 2, cy - 2, TILE_TYPES.POWER_PLANT);
+    if (tick === 100) this.placeCore(grid, cx - 2, cy + 2, TILE_TYPES.WATER_TOWER);
+    if (tick === 220) this.placeCore(grid, cx - 9, cy - 9, TILE_TYPES.POWER_PLANT);
+    if (tick === 230) this.placeCore(grid, cx + 9, cy + 9, TILE_TYPES.WATER_TOWER);
+    if (tick >= 150 && (tick - 150) % 6 === 0) this.extendRail(grid, cx, cy, tick);
+    if (tick >= 400 && (tick - 400) % 8 === 0) this.sprawl(grid, cx, cy, tick);
 
     return this.changed;
   }
 
-  /** Square ring road centered on (cx, cy) at Chebyshev radius r. */
-  private ringRoad(grid: SpatialGrid, cx: number, cy: number, r: number): void {
-    for (let dx = -r; dx <= r; dx++) {
-      this.pave(grid, cx + dx, cy - r);
-      this.pave(grid, cx + dx, cy + r);
-      this.pave(grid, cx - r, cy + dx);
-      this.pave(grid, cx + r, cy + dx);
+  /** Which ring arc fires this tick (1..4) for a radius scheduled at `start`, or 0. */
+  private ringTick(tick: number, _r: number, start: number): number {
+    if (tick < start) return 0;
+    const k = (tick - start) / 8;
+    return Number.isInteger(k) && k >= 0 && k < 4 ? k + 1 : 0;
+  }
+
+  /** Central plus-shaped road stub — the first stone of the city. */
+  private stub(grid: SpatialGrid, cx: number, cy: number): void {
+    for (const [dx, dy] of DIRS) {
+      this.pave(grid, cx + dx, cy);
+      this.pave(grid, cx, cy + dy);
+      this.pave(grid, cx + dx * 2, cy);
+      this.pave(grid, cx, cy + dy * 2);
     }
   }
 
-  /** Four arterial avenues from radius r outward to the island edge. */
-  private avenues(grid: SpatialGrid, cx: number, cy: number, fromR: number): void {
-    const dirs = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ];
-    for (const [dx, dy] of dirs) {
-      let r = fromR;
-      for (;;) {
-        const x = cx + dx * r;
-        const y = cy + dy * r;
-        if (!grid.inBounds(x, y) || grid.get(x, y) === TILE_TYPES.WATER) break;
-        this.pave(grid, x, y);
-        r++;
+  /** Extend one avenue outward by one step (2 tiles). Avenues cycle 0..3. */
+  private extendAvenue(grid: SpatialGrid, cx: number, cy: number, tick: number): void {
+    const k = (tick - 5) / 5; // global step: 0,1,2,...
+    const avenue = k % DIRS.length;
+    const stepForThisAvenue = Math.floor(k / DIRS.length);
+    const [dx, dy] = DIRS[avenue];
+    const len = 3 + stepForThisAvenue * 2; // each avenue grows independently
+    for (let r = len - 1; r <= len; r++) {
+      const x = cx + dx * r;
+      const y = cy + dy * r;
+      if (!grid.inBounds(x, y) || grid.get(x, y) === TILE_TYPES.WATER) break;
+      this.pave(grid, x, y);
+    }
+  }
+
+  /** One side of a square ring road (arc 0=top, 1=right, 2=bottom, 3=left). */
+  private ringArc(grid: SpatialGrid, cx: number, cy: number, r: number, arc: number): void {
+    for (let i = -r; i <= r; i++) {
+      if (arc === 0) this.pave(grid, cx + i, cy - r);
+      else if (arc === 1) this.pave(grid, cx + r, cy + i);
+      else if (arc === 2) this.pave(grid, cx + i, cy + r);
+      else this.pave(grid, cx - r, cy + i);
+    }
+  }
+
+  /**
+   * A small zone patch that hugs the road network: tiles are zoned only if
+   * they're developable AND near a road, so districts grow organically along
+   * the streets. Type by distance from center: commercial core, then
+   * residential, industrial beyond the ring.
+   */
+  private zonePatch(grid: SpatialGrid, cx: number, cy: number, tick: number): void {
+    const k = (tick - 40) / 4;
+    // Deterministic scatter across the map (k*37/91 mod 41 keeps it spread).
+    const px = cx + (((k * 37) % 41) - 20);
+    const py = cy + (((k * 91) % 41) - 20);
+    const centerR = Math.max(Math.abs(px - cx), Math.abs(py - cy));
+
+    let type: TileType = TILE_TYPES.RESIDENTIAL;
+    if (centerR <= 3) type = TILE_TYPES.COMMERCIAL;
+    else if (centerR >= 12 && tick >= 120) type = TILE_TYPES.INDUSTRIAL;
+
+    let anyNear = false;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (this.nearRoad(grid, px + dx, py + dy)) anyNear = true;
+      }
+    }
+    if (!anyNear) return; // no roads yet here — later patches will find them
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = px + dx;
+        const y = py + dy;
+        if (this.nearRoad(grid, x, y)) this.placeZone(grid, x, y, type);
       }
     }
   }
 
-  private residentialRing(grid: SpatialGrid, cx: number, cy: number, rMin: number, rMax: number): void {
-    grid.forEach((x, y, type) => {
-      if (!isDevelopable(type)) return;
-      const r = Math.max(Math.abs(x - cx), Math.abs(y - cy));
-      if (r >= rMin && r <= rMax) {
-        grid.set(x, y, TILE_TYPES.RESIDENTIAL);
-        this.changed = true;
-      }
-    });
+  /** Downtown spreads one commercial block at a time near the center. */
+  private downtown(grid: SpatialGrid, cx: number, cy: number, tick: number): void {
+    const k = (tick - 44) / 8;
+    const px = cx + (((k * 5) % 7) - 3);
+    const py = cy + (((k * 13) % 7) - 3);
+    if (this.nearRoad(grid, px, py)) this.placeZone(grid, px, py, TILE_TYPES.COMMERCIAL);
   }
 
-  private commercialCore(grid: SpatialGrid, cx: number, cy: number, r: number): void {
-    for (let dx = -r; dx <= r; dx++) {
-      for (let dy = -r; dy <= r; dy++) {
-        this.placeCore(grid, cx + dx, cy + dy, TILE_TYPES.COMMERCIAL);
-      }
+  /** True if a ROAD tile exists orthogonally adjacent (zones front the street). */
+  private nearRoad(grid: SpatialGrid, x: number, y: number): boolean {
+    return (
+      grid.get(x + 1, y) === TILE_TYPES.ROAD ||
+      grid.get(x - 1, y) === TILE_TYPES.ROAD ||
+      grid.get(x, y + 1) === TILE_TYPES.ROAD ||
+      grid.get(x, y - 1) === TILE_TYPES.ROAD
+    );
+  }
+
+  /** Rail line along one avenue (offset 1 tile), growing outward over time. */
+  private extendRail(grid: SpatialGrid, cx: number, cy: number, tick: number): void {
+    const d = Math.floor(hash2(this.seed, 555, 7) * 4);
+    const [dx, dy] = DIRS[d];
+    // Perpendicular offset (choose side deterministically).
+    const side = hash2(this.seed, 556, 7) < 0.5 ? 1 : -1;
+    const perpX = dx === 0 ? side : 0;
+    const perpY = dy === 0 ? side : 0;
+    const len = 4 + Math.floor((tick - 150) / 6) * 4;
+    for (let r = 2; r <= len; r++) {
+      this.placeRail(grid, cx + dx * r + perpX, cy + dy * r + perpY);
     }
   }
 
-  /** Industrial band in one cardinal direction (chosen deterministically by seed). */
-  private industrialBand(grid: SpatialGrid, cx: number, cy: number, rMin: number, rMax: number): void {
-    const dir = Math.floor(hash2(this.seed, 101, 7) * 4);
-    const [dx, dy] = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ][dir];
-    for (let r = rMin; r <= rMax; r++) {
-      const bx = cx + dx * r;
-      const by = cy + dy * r;
-      for (let w = -2; w <= 2; w++) {
-        const x = dx !== 0 ? bx : cx + w;
-        const y = dy !== 0 ? by : cy + w;
-        this.placeIf(grid, x, y, TILE_TYPES.INDUSTRIAL);
-      }
-    }
+  /** Late-game sprawl: occasional roads + patches at growing radius. */
+  private sprawl(grid: SpatialGrid, cx: number, cy: number, tick: number): void {
+    const k = (tick - 400) / 8;
+    const avenue = Math.floor(k) % DIRS.length;
+    const [dx, dy] = DIRS[avenue];
+    const r = 16 + (Math.floor(k / DIRS.length) % 6) * 2;
+    this.pave(grid, cx + dx * r, cy + dy * r);
+    this.zonePatch(grid, cx, cy, 40 + k * 4); // reuse patch logic at new offsets
   }
 
-  /** Power plant near the commercial core, water tower inside the industrial band. */
-  private infrastructure(grid: SpatialGrid, cx: number, cy: number): void {
-    // Power plant: just inside the inner ring, offset deterministically.
-    const px = cx + (hash2(this.seed, 202, 7) < 0.5 ? -2 : 2);
-    const py = cy + (hash2(this.seed, 203, 7) < 0.5 ? -2 : 2);
-    this.placeCore(grid, px, py, TILE_TYPES.POWER_PLANT);
-
-    // Water tower: adjacent to the industrial band's inner edge.
-    const dir = Math.floor(hash2(this.seed, 101, 7) * 4);
-    const [dx, dy] = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ][dir];
-    const wx = dx !== 0 ? cx + dx * (RING_INNER - 1) : cx + 1;
-    const wy = dy !== 0 ? cy + dy * (RING_INNER - 1) : cy + 1;
-    this.placeIf(grid, wx, wy, TILE_TYPES.WATER_TOWER);
-  }
-
-  /** Second power plant on the outer ring — capacity grows with the city. */
-  private outerPowerPlant(grid: SpatialGrid, cx: number, cy: number): void {
-    const side = hash2(this.seed, 301, 7) < 0.5 ? 1 : -1;
-    const px = cx + 11 * side;
-    const py = cy + (hash2(this.seed, 302, 7) < 0.5 ? 3 : -3);
-    this.placeCore(grid, px, py, TILE_TYPES.POWER_PLANT);
-  }
-
-  /** Second water tower on the opposite side of the outer ring. */
-  private outerWaterTower(grid: SpatialGrid, cx: number, cy: number): void {
-    const side = hash2(this.seed, 301, 7) < 0.5 ? 1 : -1;
-    const wx = cx - 11 * side;
-    const wy = cy + (hash2(this.seed, 303, 7) < 0.5 ? 4 : -4);
-    this.placeCore(grid, wx, wy, TILE_TYPES.WATER_TOWER);
-  }
-
-  private placeIf(grid: SpatialGrid, x: number, y: number, type: TileType): void {
+  private placeZone(grid: SpatialGrid, x: number, y: number, type: TileType): void {
     if (grid.inBounds(x, y) && isDevelopable(grid.get(x, y))) {
       grid.set(x, y, type);
       this.changed = true;
     }
   }
 
-  /** Core-area placement: flattens stone, stops only at water. */
   private placeCore(grid: SpatialGrid, x: number, y: number, type: TileType): void {
     if (grid.inBounds(x, y) && isCorePavable(grid.get(x, y))) {
       grid.set(x, y, type);
@@ -210,9 +222,18 @@ export class CityDevelopment {
   }
 
   private pave(grid: SpatialGrid, x: number, y: number): void {
-    if (grid.inBounds(x, y) && isPavable(grid.get(x, y))) {
-      grid.set(x, y, TILE_TYPES.ROAD);
-      this.changed = true;
-    }
+    if (!grid.inBounds(x, y)) return;
+    const cur = grid.get(x, y);
+    if (cur === TILE_TYPES.ROAD || !isPavable(cur)) return;
+    grid.set(x, y, TILE_TYPES.ROAD);
+    this.changed = true;
+  }
+
+  private placeRail(grid: SpatialGrid, x: number, y: number): void {
+    if (!grid.inBounds(x, y)) return;
+    const cur = grid.get(x, y);
+    if (cur === TILE_TYPES.RAIL || !isRailable(cur)) return;
+    grid.set(x, y, TILE_TYPES.RAIL);
+    this.changed = true;
   }
 }

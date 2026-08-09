@@ -19,7 +19,7 @@ export default function App() {
   const sceneRef = useRef<CityScene | null>(null);
   const [selection, setSelection] = useState<TileSelection | null>(null);
   const [stats, setStats] = useState<SceneStats | null>(null);
-  const [life, setLife] = useState<{ citizens: number; cars: number } | null>(null);
+  const [life, setLife] = useState<{ citizens: number; cars: number; ships: number; trains: number } | null>(null);
   const [overlay, setOverlay] = useState<OverlayMode>('none');
   const [serverWorld, setServerWorld] = useState<ServerWorld | null>(null);
 

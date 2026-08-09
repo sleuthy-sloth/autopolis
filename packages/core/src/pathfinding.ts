@@ -174,7 +174,12 @@ export function octile(dx: number, dy: number): number {
 }
 
 /** Vehicle movement: road tiles only, orthogonal (4-dir), cost 1 per step. */
-export function findRoadPath(grid: SpatialGrid, start: GridPoint, goal: GridPoint): PathResult {
+export function findNetworkPath(
+  grid: SpatialGrid,
+  tileType: number,
+  start: GridPoint,
+  goal: GridPoint,
+): PathResult {
   const { width, height } = grid;
   return findPath({
     width,
@@ -186,13 +191,50 @@ export function findRoadPath(grid: SpatialGrid, start: GridPoint, goal: GridPoin
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const nx = x + dx;
         const ny = y + dy;
-        if (nx >= 0 && ny >= 0 && nx < width && ny < height && grid.get(nx, ny) === TILE_TYPES.ROAD) {
+        if (nx >= 0 && ny >= 0 && nx < width && ny < height && grid.get(nx, ny) === tileType) {
           out.push({ x: nx, y: ny });
         }
       }
       return out;
     },
     heuristic: (x, y) => manhattan(goal.x - x, goal.y - y),
+  });
+}
+
+/** Road network path (cars). */
+export function findRoadPath(grid: SpatialGrid, start: GridPoint, goal: GridPoint): PathResult {
+  return findNetworkPath(grid, TILE_TYPES.ROAD, start, goal);
+}
+
+/** Rail network path (trains). */
+export function findRailPath(grid: SpatialGrid, start: GridPoint, goal: GridPoint): PathResult {
+  return findNetworkPath(grid, TILE_TYPES.RAIL, start, goal);
+}
+
+/** Ship movement: water tiles only, 8-dir, diagonal √2 — open-ocean routes. */
+export function findWaterPath(grid: SpatialGrid, start: GridPoint, goal: GridPoint): PathResult {
+  const { width, height } = grid;
+  const onWater = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < width && y < height && grid.get(x, y) === TILE_TYPES.WATER;
+  return findPath({
+    width,
+    height,
+    start,
+    goal,
+    neighbors: (x, y) => {
+      const out: GridPoint[] = [];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (onWater(nx, ny)) out.push({ x: nx, y: ny });
+        }
+      }
+      return out;
+    },
+    cost: (ax, ay, bx, by) => (ax === bx || ay === by ? 1 : Math.SQRT2),
+    heuristic: (x, y) => octile(goal.x - x, goal.y - y),
   });
 }
 

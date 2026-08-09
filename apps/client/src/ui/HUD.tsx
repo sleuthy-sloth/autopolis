@@ -7,7 +7,7 @@ interface HUDProps {
   seed: number;
   selection: TileSelection | null;
   stats: SceneStats | null;
-  life: { citizens: number; cars: number } | null;
+  life: { citizens: number; cars: number; ships: number; trains: number } | null;
   cityStats: CityStats | null;
   serverStatus: ServerStatus;
   serverTick: number | null;
@@ -59,14 +59,30 @@ export function HUD({
               <strong className="dim">I</strong> {cityStats.zones.industrial}
               <span className="sep">·</span>⚡ {(cityStats.powerCoverage * 100).toFixed(0)}%
               <span className="sep">·</span>💧 {(cityStats.waterCoverage * 100).toFixed(0)}%
-              <span className="sep">·</span>🛣 {(cityStats.infrastructure.roadTiles).toLocaleString()}
+              <span className="sep">·</span>🛣 {cityStats.infrastructure.roadTiles.toLocaleString()}
+              <span className="sep">·</span>🚆 {cityStats.infrastructure.railTiles}
             </span>
           )}
           {life && (
             <span className="chip">
               👥 {life.citizens} <span className="sep">·</span> 🚗 {life.cars}
+              {life.ships > 0 && (
+                <>
+                  {' '}
+                  <span className="sep">·</span> ⛵ {life.ships}
+                </>
+              )}
+              {life.trains > 0 && (
+                <>
+                  {' '}
+                  <span className="sep">·</span> 🚆 {life.trains}
+                </>
+              )}
             </span>
           )}
+          <span className="chip">
+            biome <strong>{grid.biome}</strong>
+          </span>
           <span className="chip">
             seed <strong>{seed}</strong>
           </span>

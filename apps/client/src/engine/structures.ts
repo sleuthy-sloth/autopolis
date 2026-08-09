@@ -1,14 +1,13 @@
 /**
- * structures.ts — the built environment, instanced for 60 fps.
+ * structures.ts — the built environment, from the low-poly model library.
  *
- * Zone tiles become real buildings: per-district heights and colors, with a
- * darker roof slab on top. Forest tiles get trees. Everything is seeded from
- * the grid seed (hash2), so the same seed always builds the same city.
- *
- * All meshes are InstancedMesh → a few draw calls regardless of city size.
+ * One InstancedMesh per model kind (house, tower, factory, ...), so a whole
+ * district renders in a handful of draw calls. Per-instance tint varies
+ * brightness/color deterministically from the grid seed.
  */
 import * as THREE from 'three';
 import { SpatialGrid, TILE_TYPES, TileType, hash2 } from '@autopolis/core';
+import { modelMaterial, modelSet, type ModelKind } from './models';
 
 /** Ground slab height per tile type (shared with the tile renderer). */
 export function tileHeight(type: TileType, elevation: number): number {
@@ -25,6 +24,8 @@ export function tileHeight(type: TileType, elevation: number): number {
       return 0.22 + elevation * 0.55;
     case TILE_TYPES.ROAD:
       return 0.14;
+    case TILE_TYPES.RAIL:
+      return 0.1;
     case TILE_TYPES.RESIDENTIAL:
       return 0.3 + elevation * 0.35;
     case TILE_TYPES.COMMERCIAL:
@@ -40,96 +41,99 @@ export function tileHeight(type: TileType, elevation: number): number {
   }
 }
 
-const STRUCTURE_STYLE: Record<number, { color: string; minH: number; maxH: number }> = {
-  [TILE_TYPES.RESIDENTIAL]: { color: '#7fb2e0', minH: 0.55, maxH: 1.05 },
-  [TILE_TYPES.COMMERCIAL]: { color: '#e8c96a', minH: 1.4, maxH: 2.6 },
-  [TILE_TYPES.INDUSTRIAL]: { color: '#c98a5e', minH: 0.8, maxH: 1.3 },
-  [TILE_TYPES.POWER_PLANT]: { color: '#a55eea', minH: 1.6, maxH: 1.6 },
-  [TILE_TYPES.WATER_TOWER]: { color: '#45aaf2', minH: 1.5, maxH: 1.5 },
+/** Tile type → model kind (+ scale range). */
+const BUILDING_MAP: Record<number, { kind: ModelKind; min: number; max: number }> = {
+  [TILE_TYPES.RESIDENTIAL]: { kind: 'house', min: 0.85, max: 1.2 },
+  [TILE_TYPES.COMMERCIAL]: { kind: 'tower', min: 0.9, max: 1.4 },
+  [TILE_TYPES.INDUSTRIAL]: { kind: 'factory', min: 0.9, max: 1.25 },
+  [TILE_TYPES.POWER_PLANT]: { kind: 'powerplant', min: 1, max: 1 },
+  [TILE_TYPES.WATER_TOWER]: { kind: 'watertower', min: 1, max: 1 },
 };
 
 export interface Structures {
-  body: THREE.InstancedMesh;
-  roof: THREE.InstancedMesh;
-  trees: THREE.InstancedMesh;
+  meshes: THREE.InstancedMesh[];
 }
 
-/** Build instanced buildings (zone tiles + plants/towers) and forest trees. */
+/** Build instanced models for zone tiles, infrastructure, and forest trees. */
 export function buildStructures(grid: SpatialGrid): Structures {
+  const models = modelSet();
+  const material = modelMaterial();
   const { width, height } = grid;
   const cx = width / 2;
   const cz = height / 2;
 
-  // Count buildable tiles first so InstancedMesh counts are exact.
-  let buildCount = 0;
-  let treeCount = 0;
+  // Count instances per kind.
+  const counts = new Map<ModelKind, number>();
+  const record = (kind: ModelKind): void => {
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  };
   grid.forEach((_x, _y, type) => {
-    if (STRUCTURE_STYLE[type]) buildCount++;
-    else if (type === TILE_TYPES.FOREST) treeCount++;
+    const entry = BUILDING_MAP[type];
+    if (entry) record(entry.kind);
+    else if (type === TILE_TYPES.FOREST) record('tree');
   });
 
-  const bodyGeo = new THREE.BoxGeometry(1, 1, 1);
-  const roofGeo = new THREE.BoxGeometry(0.94, 0.1, 0.94);
-  const treeGeo = new THREE.ConeGeometry(0.48, 1.05, 6);
-  const lambert = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  const treeMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const meshes: THREE.InstancedMesh[] = [];
+  const meshOf = (kind: ModelKind): THREE.InstancedMesh => {
+    const count = counts.get(kind) ?? 0;
+    const mesh = new THREE.InstancedMesh(models[kind], material, Math.max(count, 1));
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    meshes.push(mesh);
+    return mesh;
+  };
 
-  const body = new THREE.InstancedMesh(bodyGeo, lambert, Math.max(buildCount, 1));
-  const roof = new THREE.InstancedMesh(roofGeo, lambert, Math.max(buildCount, 1));
-  const trees = new THREE.InstancedMesh(treeGeo, treeMat, Math.max(treeCount, 1));
+  const meshByKind = new Map<ModelKind, THREE.InstancedMesh>();
+  for (const kind of counts.keys()) meshByKind.set(kind, meshOf(kind));
 
   const matrix = new THREE.Matrix4();
   const pos = new THREE.Vector3();
   const quat = new THREE.Quaternion();
-  const scale = new THREE.Vector3();
-  const color = new THREE.Color();
+  const scaleV = new THREE.Vector3();
+  const tint = new THREE.Color();
   const seed = grid.seed;
 
-  let bi = 0;
+  const place = (
+    mesh: THREE.InstancedMesh,
+    index: number,
+    x: number,
+    y: number,
+    z: number,
+    s: number,
+    rotationY: number,
+    seedKey: number,
+  ): void => {
+    pos.set(x, y, z);
+    quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotationY);
+    scaleV.set(s, s, s);
+    matrix.compose(pos, quat, scaleV);
+    mesh.setMatrixAt(index, matrix);
+    tint.setScalar(0.85 + hash2(x + seed, z + seedKey, seed ^ seedKey) * 0.3);
+    mesh.setColorAt(index, tint);
+  };
+
+  const counters = new Map<ModelKind, number>();
   grid.forEach((x, y, type, elevation) => {
-    const style = STRUCTURE_STYLE[type];
-    if (!style) return;
-    const pad = tileHeight(type, elevation);
-    const h = style.minH + hash2(x, y, seed ^ 0x51ed) * (style.maxH - style.minH);
-    // Body
-    pos.set(x - cx, pad + h / 2, y - cz);
-    scale.set(0.88, h, 0.88);
-    matrix.compose(pos, quat, scale);
-    body.setMatrixAt(bi, matrix);
-    // Roof slab
-    pos.set(x - cx, pad + h + 0.05, y - cz);
-    scale.set(1, 1, 1);
-    matrix.compose(pos, quat, scale);
-    roof.setMatrixAt(bi, matrix);
-    // Colors: district hue with deterministic jitter; roofs darker.
-    const jitter = 0.82 + hash2(x, y, seed ^ 0x9e37) * 0.36;
-    color.set(style.color).multiplyScalar(jitter);
-    body.setColorAt(bi, color);
-    color.multiplyScalar(0.55);
-    roof.setColorAt(bi, color);
-    bi++;
+    const entry = BUILDING_MAP[type];
+    if (entry) {
+      const mesh = meshByKind.get(entry.kind)!;
+      const i = counters.get(entry.kind) ?? 0;
+      counters.set(entry.kind, i + 1);
+      const s = entry.min + hash2(x, y, seed ^ 0x51ed) * (entry.max - entry.min);
+      place(mesh, i, x - cx, tileHeight(type, elevation), y - cz, s, 0, 0x51ed);
+    } else if (type === TILE_TYPES.FOREST) {
+      const mesh = meshByKind.get('tree')!;
+      const i = counters.get('tree') ?? 0;
+      counters.set('tree', i + 1);
+      const s = 0.75 + hash2(x, y, seed ^ 0x22f1) * 0.6;
+      const rot = hash2(x, y, seed ^ 0x77aa) * Math.PI * 2;
+      place(mesh, i, x - cx, tileHeight(type, elevation), y - cz, s, rot, 0x22f1);
+    }
   });
 
-  // Trees (separate pass keeps indices clean).
-  let tIdx = 0;
-  grid.forEach((x, y, type, elevation) => {
-    if (type !== TILE_TYPES.FOREST) return;
-    const s = 0.8 + hash2(x, y, seed ^ 0x22f1) * 0.7;
-    pos.set(x - cx, tileHeight(type, elevation) + s * 0.55, y - cz);
-    scale.set(s, s, s);
-    matrix.compose(pos, quat, scale);
-    trees.setMatrixAt(tIdx, matrix);
-    color.set('#3f7d3a').multiplyScalar(0.85 + hash2(x, y, seed ^ 0x77aa) * 0.3);
-    trees.setColorAt(tIdx, color);
-    tIdx++;
-  });
-
-  body.instanceMatrix.needsUpdate = true;
-  roof.instanceMatrix.needsUpdate = true;
-  trees.instanceMatrix.needsUpdate = true;
-  if (body.instanceColor) body.instanceColor.needsUpdate = true;
-  if (roof.instanceColor) roof.instanceColor.needsUpdate = true;
-  if (trees.instanceColor) trees.instanceColor.needsUpdate = true;
-
-  return { body, roof, trees };
+  for (const mesh of meshes) {
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }
+  return { meshes };
 }
