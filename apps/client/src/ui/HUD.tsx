@@ -1,6 +1,7 @@
 import type { CityStats, SpatialGrid } from '@autopolis/core';
-import type { OverlayMode, SceneStats, TileSelection } from '../engine/CityScene';
+import type { OverlayMode, SceneStats, TileSelection, Weather } from '../engine/CityScene';
 import type { ServerStatus } from '../useEngine';
+import { Charts, type HistoryPoint } from './Charts';
 
 interface HUDProps {
   grid: SpatialGrid;
@@ -9,8 +10,9 @@ interface HUDProps {
   stats: SceneStats | null;
   life: { citizens: number; cars: number; ships: number; trains: number } | null;
   cityStats: CityStats | null;
-  city: { treasury: number; taxRate: number } | null;
+  city: { treasury: number; taxRate: number; weather: Weather } | null;
   events: string[];
+  history: HistoryPoint[];
   serverStatus: ServerStatus;
   serverTick: number | null;
   overlay: OverlayMode;
@@ -35,6 +37,7 @@ export function HUD({
   cityStats,
   city,
   events,
+  history,
   serverStatus,
   serverTick,
   overlay,
@@ -48,10 +51,10 @@ export function HUD({
 
   return (
     <>
-      <header className="hud-top">
+      <div className="hud-top">
         <div className="brand">
-          <span className="brand-mark">◈</span> AUTOPOLIS
-          <span className="phase-tag">PHASE 2.5 · ENTITY &amp; VISUAL LAYER</span>
+          <span className="brand-mark">◈</span> AUTOPOLIS{' '}
+          <span className="phase-tag">PHASE 4 · GOD-MODE DASHBOARD</span>
         </div>
         <div className="hud-controls">
           {cityStats && (
@@ -93,6 +96,12 @@ export function HUD({
           <span className="chip">
             biome <strong>{grid.biome}</strong>
           </span>
+          {city && (
+            <span className={`chip weather ${city.weather}`}>
+              {city.weather === 'clear' ? '☀️' : city.weather === 'rain' ? '🌧' : '⛈'}{' '}
+              <strong>{city.weather}</strong>
+            </span>
+          )}
           <span className="chip">
             seed <strong>{seed}</strong>
           </span>
@@ -118,7 +127,7 @@ export function HUD({
             {serverTick !== null ? ` · tick ${serverTick}` : ''}
           </span>
         </div>
-      </header>
+      </div>
 
       <aside className="hud-inspector">
         <h3>TILE INSPECTOR</h3>
@@ -148,6 +157,8 @@ export function HUD({
         </span>
         {stats && <span className="muted">{stats.tiles.toLocaleString()} tiles</span>}
       </div>
+
+      <Charts history={history} />
 
       <div className="hud-feed" aria-label="newsfeed">
         <h3>NEWSFEED</h3>

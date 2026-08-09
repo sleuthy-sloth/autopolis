@@ -10,6 +10,7 @@ export interface EngineMessage {
   resources?: unknown;
   city?: unknown;
   events?: unknown;
+  history?: unknown;
 }
 
 /**
@@ -34,7 +35,7 @@ export function useEngine(
     metadata?: Record<string, string | number | boolean>;
     reasoning?: string;
   }) => void;
-  command: (command: string, amount?: number) => void;
+  command: (command: string, amount?: number, value?: string) => void;
 } {
   const [status, setStatus] = useState<ServerStatus>('connecting');
   const [tick, setTick] = useState<number | null>(null);
@@ -89,8 +90,8 @@ export function useEngine(
   );
 
   const command = useCallback(
-    (command: string, amount?: number): void => {
-      send({ type: 'command', command, amount });
+    (command: string, amount?: number, value?: string): void => {
+      send({ type: 'command', command, amount, value });
     },
     [send],
   );

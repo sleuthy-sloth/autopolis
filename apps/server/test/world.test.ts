@@ -150,6 +150,39 @@ describe('World agent integration', () => {
     expect(w.treasury).toBe(before + 1000);
     expect(w.events[0]).toContain('boosted');
   });
+
+  it('sets weather with newsroom flavor', () => {
+    const w = worldAt(10);
+    expect(w.setWeather('storm')).toBe(true);
+    expect(w.weather).toBe('storm');
+    expect(w.events[0]).toContain('⛈');
+    expect(w.setWeather('blizzard')).toBe(false);
+    expect(w.weather).toBe('storm');
+  });
+
+  it('disasters destroy buildings, cost treasury, and hit the news', () => {
+    const w = worldAt(200); // city with zones
+    const before = w.treasury;
+    const destroyedBefore = w.grid.types.filter(
+      (t) => t === TILE_TYPES.RESIDENTIAL || t === TILE_TYPES.COMMERCIAL || t === TILE_TYPES.INDUSTRIAL,
+    ).length;
+    expect(w.disaster('fire')).toBe(true);
+    const destroyedAfter = w.grid.types.filter(
+      (t) => t === TILE_TYPES.RESIDENTIAL || t === TILE_TYPES.COMMERCIAL || t === TILE_TYPES.INDUSTRIAL,
+    ).length;
+    expect(destroyedAfter).toBeLessThan(destroyedBefore);
+    expect(w.treasury).toBeLessThan(before);
+    expect(w.events[0]).toContain('🔥');
+    expect(w.disaster('tornado')).toBe(false);
+  });
+
+  it('records telemetry history across ticks', () => {
+    const w = new World(1337);
+    for (let i = 0; i < 50; i++) w.step();
+    expect(w.history.length).toBe(50);
+    expect(w.history[49].tick).toBe(50);
+    expect(typeof w.history[10].population).toBe('number');
+  });
 });
 
 describe('city events', () => {

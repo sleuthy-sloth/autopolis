@@ -16,7 +16,7 @@ export interface WsHandlers {
   onConnect: () => unknown;
   onReset: () => void;
   onGodAction: (action: AgentAction) => void;
-  onCommand: (command: string, amount?: number) => void;
+  onCommand: (command: string, amount?: number, value?: string) => void;
 }
 
 export function attachWs(server: Server, handlers: WsHandlers): (msg: unknown) => void {
@@ -38,7 +38,7 @@ export function attachWs(server: Server, handlers: WsHandlers): (msg: unknown) =
       } else if (msg.type === 'god') {
         handlers.onGodAction(msg.action as AgentAction);
       } else if (msg.type === 'command') {
-        handlers.onCommand(String(msg.command ?? ''), Number(msg.amount ?? 0));
+        handlers.onCommand(String(msg.command ?? ''), Number(msg.amount ?? 0), msg.value !== undefined ? String(msg.value) : undefined);
       }
     });
     socket.on('close', () => clients.delete(socket));

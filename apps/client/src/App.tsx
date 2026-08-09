@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SpatialGrid, generateTerrain, type CityStats } from '@autopolis/core';
-import { CityScene, type OverlayMode, type SceneStats, type TileSelection } from './engine/CityScene';
+import { CityScene, type OverlayMode, type SceneStats, type TileSelection, type Weather } from './engine/CityScene';
 import { HUD } from './ui/HUD';
 import { GodPanel, type GodActionInput } from './ui/GodPanel';
+import type { HistoryPoint } from './ui/Charts';
 import { useEngine, type EngineMessage } from './useEngine';
 
 const GRID_SIZE = 64;
@@ -12,8 +13,9 @@ interface ServerWorld {
   grid: SpatialGrid;
   stats: CityStats | null;
   resources: { power: number[]; water: number[] } | null;
-  city: { treasury: number; taxRate: number } | null;
+  city: { treasury: number; taxRate: number; weather: Weather } | null;
   events: string[];
+  history: HistoryPoint[];
 }
 
 export default function App() {
@@ -41,8 +43,9 @@ export default function App() {
       grid: SpatialGrid.deserialize(msg.grid as Parameters<typeof SpatialGrid.deserialize>[0]),
       stats: (msg.stats as CityStats | undefined) ?? null,
       resources: (msg.resources as { power: number[]; water: number[] } | undefined) ?? null,
-      city: (msg.city as { treasury: number; taxRate: number } | undefined) ?? null,
+      city: (msg.city as { treasury: number; taxRate: number; weather: Weather } | undefined) ?? null,
       events: (msg.events as string[] | undefined) ?? [],
+      history: (msg.history as HistoryPoint[] | undefined) ?? [],
     });
   }, []);
 
@@ -72,6 +75,10 @@ export default function App() {
     sceneRef.current?.setOverlay(overlay, serverWorld?.resources ?? null);
   }, [overlay, serverWorld]);
 
+  useEffect(() => {
+    if (serverWorld?.city?.weather) sceneRef.current?.setWeather(serverWorld.city.weather);
+  }, [serverWorld?.city?.weather]);
+
   const newSeed = (): void => {
     if (status === 'connected') {
       send({ type: 'reset' }); // engine regenerates + broadcasts the new world
@@ -93,6 +100,14 @@ export default function App() {
     if (status === 'connected') command('grant', 1000);
   };
 
+  const setWeather = (w: Weather): void => {
+    if (status === 'connected') command('weather', undefined, w);
+  };
+
+  const triggerDisaster = (kind: string): void => {
+    if (status === 'connected') command('disaster', undefined, kind);
+  };
+
   return (
     <div className="app">
       <div ref={mountRef} className="viewport" />
@@ -105,6 +120,7 @@ export default function App() {
         cityStats={serverWorld?.stats ?? null}
         city={serverWorld?.city ?? null}
         events={serverWorld?.events ?? []}
+        history={serverWorld?.history ?? []}
         serverStatus={status}
         serverTick={tick}
         overlay={overlay}
@@ -115,8 +131,11 @@ export default function App() {
       <GodPanel
         grid={activeGrid}
         taxRate={serverWorld?.city?.taxRate ?? null}
+        weather={serverWorld?.city?.weather ?? 'clear'}
         onAction={godActionHandler}
         onGrant={grantTreasury}
+        onWeather={setWeather}
+        onDisaster={triggerDisaster}
       />
     </div>
   );

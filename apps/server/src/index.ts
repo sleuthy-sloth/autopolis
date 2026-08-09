@@ -77,11 +77,15 @@ const broadcast = attachWs(server, {
     world.applyAction(godAction);
     broadcast(world.stateMessage());
   },
-  onCommand: (command, amount) => {
+  onCommand: (command, amount, value) => {
     if (command === 'grant' && typeof amount === 'number' && amount > 0) {
       world.treasury += amount;
       world.logEvent(`🏛 God: treasury boosted by ${Math.round(amount).toLocaleString()}¤`);
       broadcast(world.stateMessage());
+    } else if (command === 'weather' && value) {
+      if (world.setWeather(String(value))) broadcast(world.stateMessage());
+    } else if (command === 'disaster' && value) {
+      if (world.disaster(String(value))) broadcast(world.stateMessage());
     }
   },
 });
@@ -95,9 +99,9 @@ setInterval(() => {
   const due = runner.due(world);
   if (due) {
     runner.run(world, due).then((outcome) => {
-      // Actions that changed the world already broadcast via the next step;
-      // still push a state message so the newsfeed updates immediately.
-      if (outcome.applied) broadcast(world.stateMessage());
+      // Broadcast after every decision so the newsfeed stays fresh — even
+      // failures are news (the event log changed even if the grid didn't).
+      broadcast(world.stateMessage());
     });
   }
 }, 1000);

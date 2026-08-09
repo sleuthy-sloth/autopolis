@@ -125,8 +125,22 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
     same executor, same costs, same newsfeed (`🏛 God: …`), and your actions trigger
     city events (build a plant → "⚡ A new power plant comes online.")
   - Agent actions now name their district ("in the northwest district")
-- [ ] **Phase 4 — God-Mode HUD**: budget/population charts, global modifiers
-      (weather, natural disasters) — the newsfeed and treasury already feed it
+- [x] **Phase 4 — God-Mode HUD & Telemetry Dashboard** *(shipped)*
+  - **Live telemetry charts** — zero-dep SVG sparklines fed by the engine's rolling
+    history buffer: population, treasury, power/water coverage (~6 min window)
+  - **Weather** as a global modifier — ☀️ clear / 🌧 rain / ⛈ storm with gradient
+    skies, falling rain particles, storm lightning flashes, and matching fog/lights
+  - **Natural disasters** — 🌋 earthquake, 🌊 flood (claims waterfront lots), 🔥 fire
+    (downtown firebreak); deterministic damage, treasury costs, newsroom headlines
+  - Newsfeed freshness: every agent decision broadcasts, failures included
+- [x] **Graphics & interface overhaul** *(shipped)*
+  - Sky gradient backgrounds, ACES tone mapping, UnrealBloom postprocessing
+  - Animated water (per-tile wave bobbing, still instanced)
+  - Glassmorphism HUD: PHASE 4 dashboard layout, weather chip, god-mode panel
+    with weather/disaster controls
+- [ ] **Rust core port** *(in progress — see `rust/autopolis-core`)*: faithful Rust
+      port of `packages/core` with golden-fixture parity tests (same seed ⇒ same
+      world), headless `autopolis-sim` binary; WASM packaging next
 
 ## 📁 Repository Layout
 

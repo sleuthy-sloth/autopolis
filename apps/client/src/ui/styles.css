@@ -229,6 +229,53 @@ body {
   color: var(--bad);
 }
 
+/* ── charts panel ────────────────────────────────────── */
+.charts-panel {
+  position: absolute;
+  right: 16px;
+  top: 64px;
+  width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.charts-panel h3 {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.chart {
+  margin-bottom: 8px;
+}
+
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.chart-right {
+  color: var(--text);
+  letter-spacing: 0;
+}
+
+.chart-svg {
+  width: 100%;
+  height: 40px;
+  display: block;
+}
+
 /* ── newsfeed ────────────────────────────────────────── */
 .hud-feed {
   position: absolute;
@@ -282,6 +329,19 @@ body {
   padding: 10px 12px;
   backdrop-filter: blur(8px);
   z-index: 10;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.god-buttons button.active {
+  background: rgba(255, 200, 90, 0.28);
+  border-color: var(--gold);
+  color: #ffe9b8;
+}
+
+.chip.weather.storm strong,
+.chip.weather.rain strong {
+  color: #9fb4cc;
 }
 
 .god-panel h3 {

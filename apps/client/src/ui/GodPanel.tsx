@@ -3,10 +3,11 @@
  *
  * Every control here issues a real AgentAction through the same Zod contract
  * the LLM planner uses: executor placement laws, treasury costs, newsfeed
- * entries. You play by the same rules as city_planner_01.
+ * entries. Weather + disasters are global modifiers with real consequences.
  */
 import { useState } from 'react';
 import type { SpatialGrid } from '@autopolis/core';
+import type { Weather } from '../engine/CityScene';
 
 export interface GodActionInput {
   action: string;
@@ -18,11 +19,14 @@ export interface GodActionInput {
 interface GodPanelProps {
   grid: SpatialGrid;
   taxRate: number | null;
+  weather: Weather;
   onAction: (a: GodActionInput) => void;
   onGrant: () => void;
+  onWeather: (w: Weather) => void;
+  onDisaster: (kind: string) => void;
 }
 
-export function GodPanel({ grid, taxRate, onAction, onGrant }: GodPanelProps) {
+export function GodPanel({ grid, taxRate, weather, onAction, onGrant, onWeather, onDisaster }: GodPanelProps) {
   const cx = Math.floor(grid.width / 2);
   const cy = Math.floor(grid.height / 2);
   const [tax, setTax] = useState(taxRate ?? 9);
@@ -63,6 +67,32 @@ export function GodPanel({ grid, taxRate, onAction, onGrant }: GodPanelProps) {
         <button onClick={() => send('SET_ZONING', point(-2, 4), point(1, 6), { zone: 'RESIDENTIAL' })}>🏠 zone R</button>
         <button onClick={() => send('SET_ZONING', point(-1, -1), point(1, 1), { zone: 'COMMERCIAL' })}>🏢 zone C</button>
         <button onClick={() => send('SET_ZONING', point(4, -4), point(6, -2), { zone: 'INDUSTRIAL' })}>🏭 zone I</button>
+      </div>
+
+      <div className="god-row">
+        <span>
+          weather <strong>{weather}</strong>
+        </span>
+        <div className="god-buttons">
+          <button className={weather === 'clear' ? 'active' : ''} onClick={() => onWeather('clear')}>
+            ☀️ clear
+          </button>
+          <button className={weather === 'rain' ? 'active' : ''} onClick={() => onWeather('rain')}>
+            🌧 rain
+          </button>
+          <button className={weather === 'storm' ? 'active' : ''} onClick={() => onWeather('storm')}>
+            ⛈ storm
+          </button>
+        </div>
+      </div>
+
+      <div className="god-row">
+        <span>disasters</span>
+        <div className="god-buttons">
+          <button onClick={() => onDisaster('earthquake')}>🌋 quake</button>
+          <button onClick={() => onDisaster('flood')}>🌊 flood</button>
+          <button onClick={() => onDisaster('fire')}>🔥 fire</button>
+        </div>
       </div>
     </aside>
   );

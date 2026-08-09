@@ -21,9 +21,24 @@ import {
 } from '@autopolis/core';
 import { ActionExecutor, type ExecutionResult } from './agents/executor';
 import { generateCityEvents, stateOf, districtName, type EventState } from './events';
+import { mulberry32 } from '@autopolis/core';
 
 const STARTING_TREASURY = 1000;
 const EVENT_LOG_CAP = 20;
+const HISTORY_CAP = 360; // ~6 minutes at 1 Hz
+
+export type Weather = 'clear' | 'rain' | 'storm';
+
+export interface HistoryPoint {
+  tick: number;
+  population: number;
+  treasury: number;
+  taxRate: number;
+  powerCoverage: number;
+  waterCoverage: number;
+  roadTiles: number;
+  railTiles: number;
+}
 
 export class World {
   readonly grid: SpatialGrid;
@@ -33,6 +48,8 @@ export class World {
   treasury = STARTING_TREASURY;
   taxRate = 9;
   events: string[] = [];
+  weather: Weather = 'clear';
+  history: HistoryPoint[] = [];
   private dev: CityDevelopment;
   private roadGraph: RoadGraph;
   private resources: ResourceGrids;
@@ -59,6 +76,17 @@ export class World {
     // Tax income: population × rate, tick by tick.
     this.treasury += Math.floor((this.stats.population * this.taxRate) / 200);
     this.observe();
+    this.history.push({
+      tick: this.tick,
+      population: this.stats.population,
+      treasury: this.treasury,
+      taxRate: this.taxRate,
+      powerCoverage: this.stats.powerCoverage,
+      waterCoverage: this.stats.waterCoverage,
+      roadTiles: this.stats.infrastructure.roadTiles,
+      railTiles: this.stats.infrastructure.railTiles,
+    });
+    if (this.history.length > HISTORY_CAP) this.history.shift();
     return changed;
   }
 
@@ -73,6 +101,8 @@ export class World {
     this.treasury = STARTING_TREASURY;
     this.taxRate = 9;
     this.events = [];
+    this.weather = 'clear';
+    this.history = [];
     this.eventState = null;
     this.refresh();
   }
@@ -89,9 +119,13 @@ export class World {
         this.taxRate = Number(action.metadata.tax_rate);
       } else if (action.action === 'UPGRADE_INFRASTRUCTURE') {
         const target = String(action.metadata.target ?? '').toLowerCase();
-        if (target === 'power') this.resources.powerRange = Math.min(30, this.resources.powerRange + 3);
-        else if (target === 'water') this.resources.waterRange = Math.min(30, this.resources.waterRange + 3);
-        else {
+        if (target === 'power') {
+          this.resources.powerRange = Math.min(30, this.resources.powerRange + 3);
+          result.message = `power grid range extended to ${this.resources.powerRange}`;
+        } else if (target === 'water') {
+          this.resources.waterRange = Math.min(30, this.resources.waterRange + 3);
+          result.message = `water network range extended to ${this.resources.waterRange}`;
+        } else {
           return { ok: false, message: `invalid upgrade target '${target}'`, cost: 0, changed: false };
         }
         this.resources.recompute(this.grid);
@@ -111,6 +145,95 @@ export class World {
   /** Public event injection (god-mode commands etc.). */
   logEvent(text: string): void {
     this.pushEvent(text);
+  }
+
+  /** Set the global weather; affects viewport rendering + flavor events. */
+  setWeather(weather: string): boolean {
+    if (weather !== 'clear' && weather !== 'rain' && weather !== 'storm') return false;
+    this.weather = weather;
+    this.pushEvent(
+      weather === 'clear' ? '☀️ The skies clear over Autopolis.' : weather === 'rain' ? '🌧 Rain moves in.' : '⛈ A storm front hits the city!',
+    );
+    return true;
+  }
+
+  /**
+   * Natural disaster — deterministic damage from (seed, tick): zones burn in
+   * fires, quakes topple buildings, floods claim the waterfront. Treasury takes
+   * the hit; the newsroom reports it.
+   */
+  disaster(kind: string): boolean {
+    if (kind !== 'earthquake' && kind !== 'flood' && kind !== 'fire') return false;
+    const { width, height } = this.grid;
+    const cx = width / 2;
+    const cy = height / 2;
+    const destroyed = new Set<number>();
+    const rng = mulberry32((this.seed ^ this.tick) >>> 0);
+    const targets = kind === 'flood' ? this.coastalZoneTiles() : null;
+    const budget = kind === 'fire' ? 30 : kind === 'earthquake' ? 24 : 20;
+
+    for (let attempt = 0; attempt < budget * 6 && destroyed.size < budget; attempt++) {
+      let x: number;
+      let y: number;
+      if (targets && targets.length > 0) {
+        const t = targets[Math.floor(rng() * targets.length)];
+        x = t[0];
+        y = t[1];
+      } else {
+        x = Math.floor(rng() * width);
+        y = Math.floor(rng() * height);
+      }
+      const type = this.grid.get(x, y);
+      const isBuilding =
+        type === TILE_TYPES.RESIDENTIAL ||
+        type === TILE_TYPES.COMMERCIAL ||
+        type === TILE_TYPES.INDUSTRIAL ||
+        type === TILE_TYPES.POWER_PLANT ||
+        type === TILE_TYPES.WATER_TOWER;
+      const isRoad = type === TILE_TYPES.ROAD || type === TILE_TYPES.RAIL;
+      if (!isBuilding && !(kind === 'earthquake' && isRoad)) continue;
+      if (kind === 'fire' && Math.hypot(x - cx, y - cy) < 6) continue; // downtown firebreak
+      this.grid.set(x, y, TILE_TYPES.GRASS);
+      this.grid.setElevation(x, y, this.grid.getElevation(x, y) * 0.5);
+      destroyed.add(y * width + x);
+    }
+
+    if (destroyed.size === 0) {
+      this.pushEvent(`⚠️ The ${kind} passes with little damage.`);
+      return false;
+    }
+    this.treasury = Math.max(0, this.treasury - destroyed.size * 15);
+    const headline =
+      kind === 'fire'
+        ? `🔥 A fire sweeps the city — ${destroyed.size} structure(s) lost!`
+        : kind === 'earthquake'
+          ? `🌋 Earthquake! ${destroyed.size} buildings damaged.`
+          : `🌊 Flooding claims ${destroyed.size} waterfront lot(s)!`;
+    this.pushEvent(headline);
+    this.refresh();
+    this.observe();
+    return true;
+  }
+
+  /** Zone tiles adjacent to water (flood targets). */
+  private coastalZoneTiles(): Array<[number, number]> {
+    const out: Array<[number, number]> = [];
+    this.grid.forEach((x, y, type) => {
+      const isZone =
+        type === TILE_TYPES.RESIDENTIAL ||
+        type === TILE_TYPES.COMMERCIAL ||
+        type === TILE_TYPES.INDUSTRIAL;
+      if (
+        isZone &&
+        (this.grid.get(x + 1, y) === TILE_TYPES.WATER ||
+          this.grid.get(x - 1, y) === TILE_TYPES.WATER ||
+          this.grid.get(x, y + 1) === TILE_TYPES.WATER ||
+          this.grid.get(x, y - 1) === TILE_TYPES.WATER)
+      ) {
+        out.push([x, y]);
+      }
+    });
+    return out;
   }
 
   /** Emit news headlines when notable state transitions occur. */
@@ -162,8 +285,9 @@ export class World {
       tick: this.tick,
       grid: this.grid.serialize(),
       stats: this.stats,
-      city: { treasury: this.treasury, taxRate: this.taxRate },
+      city: { treasury: this.treasury, taxRate: this.taxRate, weather: this.weather },
       events: this.events.slice(0, 8),
+      history: this.history.slice(-HISTORY_CAP),
       resources: {
         power: Array.from(this.resources.power),
         water: Array.from(this.resources.water),
@@ -177,7 +301,7 @@ export class World {
       service: 'autopolis-core',
       tick: this.tick,
       grid: { width: this.grid.width, height: this.grid.height, seed: this.seed, biome: this.grid.biome },
-      city: { treasury: this.treasury, taxRate: this.taxRate },
+      city: { treasury: this.treasury, taxRate: this.taxRate, weather: this.weather },
       stats: {
         population: this.stats.population,
         zones: this.stats.zones,
