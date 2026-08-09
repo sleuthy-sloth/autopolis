@@ -19,6 +19,7 @@ export default function App() {
   const sceneRef = useRef<CityScene | null>(null);
   const [selection, setSelection] = useState<TileSelection | null>(null);
   const [stats, setStats] = useState<SceneStats | null>(null);
+  const [life, setLife] = useState<{ citizens: number; cars: number } | null>(null);
   const [overlay, setOverlay] = useState<OverlayMode>('none');
   const [serverWorld, setServerWorld] = useState<ServerWorld | null>(null);
 
@@ -48,6 +49,7 @@ export default function App() {
     const scene = new CityScene(mountRef.current, activeGrid, {
       onSelection: setSelection,
       onStats: setStats,
+      onLife: setLife,
     });
     sceneRef.current = scene;
     return () => {
@@ -86,6 +88,7 @@ export default function App() {
         seed={serverWorld?.grid.seed ?? seed}
         selection={selection}
         stats={stats}
+        life={life}
         cityStats={serverWorld?.stats ?? null}
         serverStatus={status}
         serverTick={tick}

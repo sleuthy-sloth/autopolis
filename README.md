@@ -89,6 +89,13 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
   - Server-authoritative sync: engine broadcasts full `world:state` (grid + stats + coverage), client renders
   - God-mode controls: `New Seed` resets the world live over WebSocket; power/water coverage overlay
   - **47/47 unit tests**; city at tick 12: pop 1,932 · 220 road tiles · 1 road component · 28% power / 22% water
+- [x] **Phase 2.5 — Entity & Visual Layer** *(shipped)*
+  - Instanced buildings with per-district heights + roof slabs (R houses, C towers, I sheds) and pine trees
+  - **Visible population**: up to 400 citizens walk real A* routes — homes → shops → factories, dwell, repeat
+  - **Road traffic**: up to 60 cars drive the road graph with heading-based turns
+  - Entity count scales with server stats (pop / road tiles); choreography is seed-deterministic
+  - Staggered spawning (12/frame) so city-state updates never hitch the 60 fps loop
+  - Everything is `InstancedMesh` — the whole living city is ~8 draw calls total
 - [ ] **Phase 3 — Agent Orchestration**: async agent tick runner, Zod-validated JSON actions,
       prompt templates for City Planner & Developer agents wired to state updates
 - [ ] **Phase 4 — God-Mode HUD**: live agent action newsfeed, budget/population charts,
@@ -178,6 +185,24 @@ The city **grows itself** on a deterministic schedule — roads first, then dist
 - **A\*** routes vehicles on the road graph (4-dir) and citizens across terrain (8-dir, diagonal √2).
 - The engine is authoritative: it broadcasts full world state over WebSocket; the viewport just renders.
   `⟳ New Seed` regenerates the world through the same channel.
+
+## 🏙️ Entity & Visual Layer (Phase 2.5)
+
+![Autopolis Phase 2.5 — living city: buildings, trees, pedestrians, traffic](docs/phase2.5-viewport.png)
+
+City **state** stays server-truth; the visible life is a deterministic client-side layer seeded from the
+world seed — the same seed always choreographs the same city. Every entity is an `InstancedMesh`, so the
+whole living city is about **8 draw calls at 60 fps**:
+
+| Layer | What you see | Count rule |
+|---|---|---|
+| Buildings | Houses (R), towers (C), sheds (I) + plants/towers — varied heights, roof slabs | 1 per zone tile |
+| Trees | Pines on forest tiles | 1 per forest tile |
+| Citizens | Capsule people walking real A* trips: home → shop/factory → dwell → repeat | `min(pop / 5, 400)` |
+| Cars | Colored boxes with heading-based turns on the road graph | `min(roads / 4, 60)` |
+
+Spawns are staggered (12/frame) so city-state updates never hitch the frame; HUD shows the live
+`👥 citizens · 🚗 cars` counts. Debug hook: `window.__autopolisLife.debugPositions()` in the console.
 
 ## 🌐 Mirrors
 

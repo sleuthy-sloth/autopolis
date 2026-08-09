@@ -7,6 +7,7 @@ interface HUDProps {
   seed: number;
   selection: TileSelection | null;
   stats: SceneStats | null;
+  life: { citizens: number; cars: number } | null;
   cityStats: CityStats | null;
   serverStatus: ServerStatus;
   serverTick: number | null;
@@ -28,6 +29,7 @@ export function HUD({
   seed,
   selection,
   stats,
+  life,
   cityStats,
   serverStatus,
   serverTick,
@@ -45,7 +47,7 @@ export function HUD({
       <header className="hud-top">
         <div className="brand">
           <span className="brand-mark">◈</span> AUTOPOLIS
-          <span className="phase-tag">PHASE 2 · SIMULATION CORE</span>
+          <span className="phase-tag">PHASE 2.5 · ENTITY &amp; VISUAL LAYER</span>
         </div>
         <div className="hud-controls">
           {cityStats && (
@@ -58,6 +60,11 @@ export function HUD({
               <span className="sep">·</span>⚡ {(cityStats.powerCoverage * 100).toFixed(0)}%
               <span className="sep">·</span>💧 {(cityStats.waterCoverage * 100).toFixed(0)}%
               <span className="sep">·</span>🛣 {(cityStats.infrastructure.roadTiles).toLocaleString()}
+            </span>
+          )}
+          {life && (
+            <span className="chip">
+              👥 {life.citizens} <span className="sep">·</span> 🚗 {life.cars}
             </span>
           )}
           <span className="chip">

@@ -9,6 +9,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { SpatialGrid, TILE_PALETTE, TILE_TYPES, TileType, hash2, tileName } from '@autopolis/core';
+import { CityLife } from './entities';
+import { buildStructures, tileHeight, type Structures } from './structures';
 
 export interface TileSelection {
   x: number;
@@ -34,40 +36,13 @@ export interface OverlayResources {
 export interface SceneCallbacks {
   onSelection?: (selection: TileSelection | null) => void;
   onStats?: (stats: SceneStats) => void;
+  /** Visible population/traffic counts after a grid rebuild. */
+  onLife?: (life: { citizens: number; cars: number }) => void;
 }
 
 const MAX_DEVICE_PIXEL_RATIO = 2;
 const HOVER_TINT = new THREE.Color(1.35, 1.3, 1.05);
 const DRAG_THRESHOLD_PX = 5;
-
-function tileHeight(type: TileType, elevation: number): number {
-  switch (type) {
-    case TILE_TYPES.WATER:
-      return 0.06;
-    case TILE_TYPES.SAND:
-      return 0.16 + elevation * 0.35;
-    case TILE_TYPES.STONE:
-      return 0.5 + elevation * 1.1;
-    case TILE_TYPES.FOREST:
-      return 0.34 + elevation * 0.8;
-    case TILE_TYPES.DIRT:
-      return 0.22 + elevation * 0.55;
-    case TILE_TYPES.ROAD:
-      return 0.14;
-    case TILE_TYPES.RESIDENTIAL:
-      return 0.3 + elevation * 0.35;
-    case TILE_TYPES.COMMERCIAL:
-      return 0.4 + elevation * 0.4;
-    case TILE_TYPES.INDUSTRIAL:
-      return 0.45 + elevation * 0.45;
-    case TILE_TYPES.POWER_PLANT:
-      return 1.1;
-    case TILE_TYPES.WATER_TOWER:
-      return 1.1;
-    default:
-      return 0.2 + elevation * 0.55;
-  }
-}
 
 export class CityScene {
   private readonly container: HTMLElement;
@@ -80,6 +55,8 @@ export class CityScene {
   private tilesMesh: THREE.InstancedMesh;
   private readonly selectionRing: THREE.LineSegments;
   private gridLinesMesh: THREE.LineSegments;
+  private structures: Structures;
+  private cityLife: CityLife;
   private overlayMesh: THREE.InstancedMesh | null = null;
   private overlayMode: OverlayMode = 'none';
   private overlayResources: OverlayResources | null = null;
@@ -173,7 +150,19 @@ export class CityScene {
     this.tilesMesh = this.buildTilesMesh();
     this.gridLinesMesh = this.buildGridLines();
     this.selectionRing = this.buildSelectionRing();
-    this.scene.add(this.tilesMesh, this.gridLinesMesh, this.selectionRing);
+    this.structures = buildStructures(this.grid);
+    this.cityLife = new CityLife(this.scene, this.grid);
+    // Debug/verification hook — lets the console sample live entity positions.
+    (window as unknown as Record<string, unknown>).__autopolisLife = this.cityLife;
+    this.scene.add(
+      this.tilesMesh,
+      this.gridLinesMesh,
+      this.selectionRing,
+      this.structures.body,
+      this.structures.roof,
+      this.structures.trees,
+    );
+    this.emitLife();
 
     this.bindEvents();
     this.renderer.setAnimationLoop(() => this.loop());
@@ -249,6 +238,8 @@ export class CityScene {
   private loop(): void {
     if (this.disposed) return;
     this.timer.update();
+    const dt = Math.min(this.timer.getDelta(), 0.1);
+    this.cityLife.update(dt);
     this.controls.update();
     this.updateHover();
     this.renderer.render(this.scene, this.camera);
@@ -320,9 +311,24 @@ export class CityScene {
     this.gridLinesMesh = this.buildGridLines();
     this.scene.add(this.tilesMesh, this.gridLinesMesh);
 
+    // Rebuild the built environment + population choreography for the new grid.
+    this.scene.remove(this.structures.body, this.structures.roof, this.structures.trees);
+    this.disposeObject(this.structures.body);
+    this.disposeObject(this.structures.roof);
+    this.disposeObject(this.structures.trees);
+    this.structures = buildStructures(this.grid);
+    this.scene.add(this.structures.body, this.structures.roof, this.structures.trees);
+    this.cityLife.rebuild(this.grid);
+    this.emitLife();
+
     if (this.overlayMode !== 'none') {
       this.rebuildOverlay(this.overlayMode, this.overlayResources);
     }
+  }
+
+  private emitLife(): void {
+    const life = this.cityLife.report();
+    this.callbacks.onLife?.(life);
   }
 
   /** Toggle the resource coverage overlay ('none' | 'power' | 'water'). */
@@ -398,6 +404,7 @@ export class CityScene {
     el.removeEventListener('pointerleave', this.onPointerLeave);
     window.removeEventListener('resize', this.onResize);
 
+    this.cityLife.dispose(this.scene);
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
