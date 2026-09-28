@@ -25,12 +25,18 @@ export function attachWs(server: Server, handlers: WsHandlers): (msg: unknown) =
 
   wss.on('connection', (socket) => {
     clients.add(socket);
+    let malformed = 0;
     socket.send(JSON.stringify({ type: 'world:state', ...(handlers.onConnect() as object) }));
     socket.on('message', (raw) => {
       let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(String(raw));
       } catch {
+        malformed += 1;
+        const preview = String(raw).slice(0, 80).replace(/\s+/g, ' ');
+        console.warn(
+          `[autopolis:ws] dropped malformed frame #${malformed} (non-JSON): "${preview}"`,
+        );
         return;
       }
       if (msg.type === 'reset') {

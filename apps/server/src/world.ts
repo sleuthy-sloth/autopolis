@@ -13,12 +13,16 @@ import {
   RoadGraph,
   ResourceGrids,
   computeCityStats,
+  RESOURCE_MAX_RANGE,
   TILE_TYPES,
   buildBriefing,
   type AgentAction,
   type CityBriefing,
   type CityStats,
+  type SerializedGrid,
 } from '@autopolis/core';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { ActionExecutor, type ExecutionResult } from './agents/executor';
 import { generateCityEvents, stateOf, districtName, type EventState } from './events';
 import { mulberry32 } from '@autopolis/core';
@@ -26,6 +30,40 @@ import { mulberry32 } from '@autopolis/core';
 const STARTING_TREASURY = 1000;
 const EVENT_LOG_CAP = 20;
 const HISTORY_CAP = 360; // ~6 minutes at 1 Hz
+
+/** Bump on breaking snapshot-shape changes; loaders refuse other versions. */
+const SAVE_FILE_VERSION = 1;
+
+/**
+ * Snapshot directory — `data/` under the server cwd by default, overridable
+ * with AUTOPOLIS_SAVE_DIR. Seed-keyed filenames (data/city-<seed>.json), so a
+ * "New Seed" reset never overwrites another city's save.
+ */
+export const SAVE_DIR = resolve(process.env.AUTOPOLIS_SAVE_DIR ?? 'data');
+
+/** Seed-keyed snapshot path, e.g. data/city-1337.json. */
+export function savePathFor(seed: number): string {
+  return join(SAVE_DIR, `city-${seed}.json`);
+}
+
+/** Full disk snapshot of the city — plain JSON, no class instances. */
+export interface WorldSaveData {
+  version: typeof SAVE_FILE_VERSION;
+  /** ISO timestamp of the write (human audit). */
+  savedAt: string;
+  /** World tick when the snapshot was written (client "last saved" readout). */
+  savedTick: number;
+  seed: number;
+  tick: number;
+  treasury: number;
+  taxRate: number;
+  weather: Weather;
+  events: string[];
+  history: HistoryPoint[];
+  grid: SerializedGrid;
+  powerRange: number;
+  waterRange: number;
+}
 
 export type Weather = 'clear' | 'rain' | 'storm';
 
@@ -50,6 +88,10 @@ export class World {
   events: string[] = [];
   weather: Weather = 'clear';
   history: HistoryPoint[] = [];
+  /** Tick of the last successful save in this process — null until first save. */
+  lastSavedTick: number | null = null;
+  /** ISO timestamp of the last successful save (audit trail). */
+  lastSavedAt: string | null = null;
   private dev: CityDevelopment;
   private roadGraph: RoadGraph;
   private resources: ResourceGrids;
@@ -105,6 +147,114 @@ export class World {
     this.history = [];
     this.eventState = null;
     this.refresh();
+  }
+
+  /**
+   * Plain JSON-safe snapshot of the full city state: grid, city ledger,
+   * newsroom, telemetry, and resource ranges. Nothing class-typed survives.
+   */
+  serialize(): WorldSaveData {
+    return {
+      version: SAVE_FILE_VERSION,
+      savedAt: this.lastSavedAt ?? '',
+      savedTick: this.lastSavedTick ?? 0,
+      seed: this.seed,
+      tick: this.tick,
+      treasury: this.treasury,
+      taxRate: this.taxRate,
+      weather: this.weather,
+      events: [...this.events],
+      history: this.history.map((h) => ({ ...h })),
+      grid: this.grid.serialize(),
+      powerRange: this.resources.powerRange,
+      waterRange: this.resources.waterRange,
+    };
+  }
+
+  /** Persist the city to data/city-<seed>.json (atomic tmp+rename). */
+  save(): boolean {
+    const path = savePathFor(this.seed);
+    try {
+      mkdirSync(SAVE_DIR, { recursive: true });
+      const data = {
+        ...this.serialize(),
+        savedAt: new Date().toISOString(),
+        savedTick: this.tick,
+      };
+      const tmp = `${path}.tmp`;
+      writeFileSync(tmp, JSON.stringify(data, null, 2));
+      renameSync(tmp, path); // never leave a truncated snapshot behind
+      this.lastSavedTick = this.tick;
+      this.lastSavedAt = data.savedAt;
+      this.pushEvent(`💾 City snapshot saved — tick ${this.tick.toLocaleString()}.`);
+      return true;
+    } catch (err) {
+      console.error(`[autopolis] save to ${path} failed:`, err);
+      return false;
+    }
+  }
+
+  /** Reload the city from its snapshot file (current seed). No-op when absent/corrupt. */
+  load(): boolean {
+    const path = savePathFor(this.seed);
+    let data: WorldSaveData;
+    try {
+      data = parseSaveFile(path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error(`[autopolis] load from ${path} failed:`, err);
+      }
+      return false;
+    }
+    World.adopt(this, data);
+    this.pushEvent(`🗂 City loaded from snapshot — tick ${this.tick.toLocaleString()}.`);
+    return true;
+  }
+
+  /** Startup path: build a World from a snapshot file, or null when absent/unreadable. */
+  static loadFromFile(path: string): World | null {
+    let data: WorldSaveData;
+    try {
+      data = parseSaveFile(path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error(`[autopolis] load from ${path} failed:`, err);
+      }
+      return null;
+    }
+    const world = new World(data.seed, data.grid.width, data.grid.height);
+    World.adopt(world, data);
+    return world;
+  }
+
+  /**
+   * Overwrite `target`'s state from a parsed snapshot: grid contents, city
+   * ledger, newsroom, telemetry, resource ranges. Derived state (road graph,
+   * stats, event cursor) is rebuilt — it is never trusted from disk.
+   */
+  private static adopt(target: World, data: WorldSaveData): void {
+    target.seed = data.seed;
+    target.tick = data.tick;
+    target.treasury = Number.isFinite(data.treasury) ? data.treasury : STARTING_TREASURY;
+    target.taxRate = Number.isFinite(data.taxRate) ? Math.min(30, Math.max(0, data.taxRate)) : 9;
+    target.weather = data.weather === 'rain' || data.weather === 'storm' ? data.weather : 'clear';
+    target.events = Array.isArray(data.events) ? [...data.events] : [];
+    target.history = Array.isArray(data.history) ? data.history.map((h) => ({ ...h })) : [];
+    target.lastSavedTick = data.savedTick ?? null;
+    target.lastSavedAt = data.savedAt ?? null;
+
+    const g = data.grid;
+    target.grid.fill(TILE_TYPES.GRASS);
+    target.grid.elevations.fill(0);
+    target.grid.seed = g.seed;
+    target.grid.biome = g.biome || 'island';
+    target.grid.types.set(g.types);
+    target.grid.elevations.set(g.elevations);
+    target.dev = new CityDevelopment(target.seed); // development is (seed, tick, grid) — pure
+    target.resources.powerRange = Number.isFinite(data.powerRange) ? data.powerRange : RESOURCE_MAX_RANGE;
+    target.resources.waterRange = Number.isFinite(data.waterRange) ? data.waterRange : RESOURCE_MAX_RANGE;
+    target.refresh();
+    target.observe(); // restore the newsroom cursor without emitting headlines
   }
 
   /**
@@ -292,6 +442,7 @@ export class World {
         power: Array.from(this.resources.power),
         water: Array.from(this.resources.water),
       },
+      lastSavedTick: this.lastSavedTick,
     };
   }
 
@@ -309,6 +460,28 @@ export class World {
         waterCoverage: this.stats.waterCoverage,
         roadComponents: this.stats.roadComponents,
       },
+      persistence: { lastSavedTick: this.lastSavedTick, savePath: savePathFor(this.seed) },
     };
   }
+}
+
+/** Read + validate a snapshot file. Throws on missing/corrupt/unsupported data. */
+function parseSaveFile(path: string): WorldSaveData {
+  const raw = readFileSync(path, 'utf8');
+  const data = JSON.parse(raw) as WorldSaveData;
+  if (data.version !== SAVE_FILE_VERSION) {
+    throw new Error(`unsupported snapshot version ${String(data.version)} (expected ${SAVE_FILE_VERSION})`);
+  }
+  if (!data.grid || typeof data.seed !== 'number' || typeof data.tick !== 'number') {
+    throw new Error('snapshot missing required fields (grid/seed/tick)');
+  }
+  if (
+    !Number.isInteger(data.grid.width) ||
+    !Number.isInteger(data.grid.height) ||
+    data.grid.width <= 0 ||
+    data.grid.height <= 0
+  ) {
+    throw new Error(`snapshot has invalid grid dimensions ${data.grid.width}x${data.grid.height}`);
+  }
+  return data;
 }

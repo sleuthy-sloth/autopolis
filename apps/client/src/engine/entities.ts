@@ -22,16 +22,60 @@ import {
 import { tileHeight } from './structures';
 import { modelMaterial, modelSet, type ModelKind } from './models';
 
-const MAX_CITIZENS = 400;
-const MAX_CARS = 60;
-const MAX_SHIPS = 10;
-const MAX_TRAINS = 3;
-const SPAWNS_PER_FRAME = 12;
+/**
+ * Tunables for the population/traffic simulation. Defaults match the classic
+ * tuned values; every numeric value can be overridden at runtime through the
+ * localStorage key `autopolis.perf.<key>` (e.g. `autopolis.perf.maxCitizens=200`)
+ * to A/B performance without rebuilding.
+ */
+export interface PerfConfig {
+  maxCitizens: number;
+  maxCars: number;
+  maxShips: number;
+  maxTrains: number;
+  spawnsPerFrame: number;
+  /** Max A* path computations resolved per frame (arrivals + spawns share it). */
+  pathsPerFrame: number;
+  /** Frames a computed path stays valid in the cache (0 disables caching). */
+  pathCacheFrames: number;
+}
+
+const DEFAULT_PERF_CONFIG: PerfConfig = {
+  maxCitizens: 400,
+  maxCars: 60,
+  maxShips: 10,
+  maxTrains: 3,
+  spawnsPerFrame: 12,
+  pathsPerFrame: 8,
+  pathCacheFrames: 180,
+};
+
+function perfOverrides(): Partial<PerfConfig> {
+  const out: Partial<PerfConfig> = {};
+  if (typeof localStorage === 'undefined') return out;
+  try {
+    for (const key of Object.keys(DEFAULT_PERF_CONFIG) as Array<keyof PerfConfig>) {
+      const raw = localStorage.getItem(`autopolis.perf.${key}`);
+      if (raw === null) continue;
+      const v = Number(raw);
+      if (Number.isFinite(v) && v >= 0) out[key] = Math.floor(v);
+    }
+  } catch {
+    // localStorage blocked (private mode / sandbox) — keep defaults.
+  }
+  if (out.pathsPerFrame !== undefined && out.pathsPerFrame < 1) out.pathsPerFrame = 1;
+  return out;
+}
+
+/** Active performance config: defaults, plus any `autopolis.perf.*` overrides. */
+export const PERF_CONFIG: PerfConfig = { ...DEFAULT_PERF_CONFIG, ...perfOverrides() };
 
 const CAR_TINTS = ['#d64541', '#3a7bd5', '#f5f5f5', '#3c3c3c', '#f0c040', '#6fae4f', '#c8a2c8'];
 
 type Role = 'citizen' | 'car' | 'ship';
 type PendingJob = Role | 'train';
+type RepathRequest = { role: Role; walkerId: number; from: GridPoint; candidates: GridPoint[] };
+type SpawnRequest = { role: Role | 'train'; from: GridPoint; to: GridPoint };
 
 interface Walker {
   path: GridPoint[];
@@ -41,6 +85,8 @@ interface Walker {
   dwell: number;
   dwellT: number;
   phase: number;
+  /** Set while a fresh path is being resolved by the budgeted pathfinder. */
+  awaitingPath: boolean;
 }
 
 interface Train {
@@ -95,6 +141,12 @@ export class CityLife {
   private tiles: Record<string, GridPoint[]> = {};
   private dummy = new THREE.Object3D();
   private budgets = { citizens: 0, cars: 0, ships: 0, trains: 0 };
+  // Per-frame A* budget + path cache (see PERF_CONFIG.pathsPerFrame/pathCacheFrames).
+  private frame = 0;
+  private budgetUsed = 0;
+  private readonly pathCache = new Map<string, { path: GridPoint[] | null; frame: number }>();
+  private pathQueue: RepathRequest[] = [];
+  private spawnQueue: SpawnRequest[] = [];
 
   /** Visible population/traffic/shipping/rail targets for the HUD. */
   report(): { citizens: number; cars: number; ships: number; trains: number } {
@@ -123,11 +175,11 @@ export class CityLife {
       return mesh;
     };
     this.meshOf = {
-      citizen: make('person', MAX_CITIZENS),
-      car: make('car', MAX_CARS),
-      ship: make('ship', MAX_SHIPS),
-      trainEngine: make('trainEngine', MAX_TRAINS),
-      trainCar: make('trainCar', MAX_TRAINS * 2),
+      citizen: make('person', PERF_CONFIG.maxCitizens),
+      car: make('car', PERF_CONFIG.maxCars),
+      ship: make('ship', PERF_CONFIG.maxShips),
+      trainEngine: make('trainEngine', PERF_CONFIG.maxTrains),
+      trainCar: make('trainCar', PERF_CONFIG.maxTrains * 2),
     };
     this.rebuild(grid);
   }
@@ -158,10 +210,18 @@ export class CityLife {
     });
 
     const population = this.tiles.residential.length * 4;
-    this.budgets.citizens = Math.min(Math.floor(population / 5), MAX_CITIZENS);
-    this.budgets.cars = Math.min(Math.floor(this.tiles.roads.length / 4), MAX_CARS);
-    this.budgets.ships = Math.min(Math.floor(this.tiles.waterEdge.length / 40), MAX_SHIPS);
-    this.budgets.trains = Math.min(Math.floor(this.tiles.rails.length / 25), MAX_TRAINS);
+    this.budgets.citizens = Math.min(Math.floor(population / 5), PERF_CONFIG.maxCitizens);
+    this.budgets.cars = Math.min(Math.floor(this.tiles.roads.length / 4), PERF_CONFIG.maxCars);
+    this.budgets.ships = Math.min(Math.floor(this.tiles.waterEdge.length / 40), PERF_CONFIG.maxShips);
+    this.budgets.trains = Math.min(Math.floor(this.tiles.rails.length / 25), PERF_CONFIG.maxTrains);
+
+    // The grid changed: cached paths and in-flight requests are stale.
+    this.pathCache.clear();
+    this.pathQueue = [];
+    this.spawnQueue = [];
+    for (const list of [this.citizens, this.cars, this.ships]) {
+      for (const w of list) w.awaitingPath = false;
+    }
 
     if (!sameSeed) {
       // Brand-new world: full reseed.
@@ -174,11 +234,11 @@ export class CityLife {
       for (let i = 0; i < this.budgets.cars; i++) this.pending.push('car');
       for (let i = 0; i < this.budgets.ships; i++) this.pending.push('ship');
       for (let i = 0; i < this.budgets.trains; i++) this.pending.push('train');
-      this.hideAll(this.meshOf.citizen, MAX_CITIZENS);
-      this.hideAll(this.meshOf.car, MAX_CARS);
-      this.hideAll(this.meshOf.ship, MAX_SHIPS);
-      this.hideAll(this.meshOf.trainEngine, MAX_TRAINS);
-      this.hideAll(this.meshOf.trainCar, MAX_TRAINS * 2);
+      this.hideAll(this.meshOf.citizen, PERF_CONFIG.maxCitizens);
+      this.hideAll(this.meshOf.car, PERF_CONFIG.maxCars);
+      this.hideAll(this.meshOf.ship, PERF_CONFIG.maxShips);
+      this.hideAll(this.meshOf.trainEngine, PERF_CONFIG.maxTrains);
+      this.hideAll(this.meshOf.trainCar, PERF_CONFIG.maxTrains * 2);
     } else {
       // City grew: keep existing entities walking, top up to the new budgets.
       this.pending = [];
@@ -192,18 +252,35 @@ export class CityLife {
   /** Advance the simulation; spawns pending entities progressively. */
   update(dt: number): void {
     if (!this.grid) return;
-    for (let s = 0; s < SPAWNS_PER_FRAME && this.pending.length > 0; s++) {
+    this.frame++;
+    this.budgetUsed = 0;
+
+    // Spawn pending population/traffic; every path lookup shares the same
+    // per-frame A* budget (cached results cost nothing).
+    for (let s = 0; s < PERF_CONFIG.spawnsPerFrame && this.pending.length > 0; s++) {
       const job = this.pending.shift()!;
       if (job === 'citizen') this.spawnCitizen();
       else if (job === 'car') this.spawnCar();
       else if (job === 'ship') this.spawnShip();
       else this.spawnTrain();
     }
+    // Spawns deferred earlier because the frame budget was exhausted.
+    for (let s = 0; s < PERF_CONFIG.spawnsPerFrame && this.spawnQueue.length > 0 && this.budgetUsed < PERF_CONFIG.pathsPerFrame; s++) {
+      const req = this.spawnQueue.shift()!;
+      this.requestSpawn(req.role, req.from, req.to);
+    }
+
     const dtClamped = Math.min(dt, 0.1);
     this.stepWalkers(this.citizens, this.meshOf.citizen, dtClamped, 'citizen');
     this.stepWalkers(this.cars, this.meshOf.car, dtClamped, 'car');
     this.stepWalkers(this.ships, this.meshOf.ship, dtClamped, 'ship');
     this.stepTrains(dtClamped);
+
+    // Walkers that arrived this frame enqueued repath requests above; drain
+    // them within the same budget so trips resume with at most a frame's pause.
+    while (this.pathQueue.length > 0 && this.budgetUsed < PERF_CONFIG.pathsPerFrame) {
+      this.processRepath(this.pathQueue.shift()!);
+    }
   }
 
   dispose(scene: THREE.Scene): void {
@@ -219,70 +296,110 @@ export class CityLife {
   }
 
   private spawnCitizen(): void {
-    if (this.citizens.length >= MAX_CITIZENS) return;
+    if (this.citizens.length >= PERF_CONFIG.maxCitizens) return;
     const home = this.pick(this.tiles.residential) ?? this.pickAnyLand();
     if (!home) return;
     const goal = this.pick(this.tiles.commercial) ?? this.pick(this.tiles.industrial) ?? home;
-    const walker = this.makeWalker(home, goal, 1.4, 4, 'citizen');
-    if (walker) {
-      this.tint(this.meshOf.citizen, this.citizens.length, 0.85, 1.15);
-      this.citizens.push(walker);
-    }
+    this.requestSpawn('citizen', home, goal);
   }
 
   private spawnCar(): void {
-    if (this.cars.length >= MAX_CARS || this.tiles.roads.length < 2) return;
+    if (this.cars.length >= PERF_CONFIG.maxCars || this.tiles.roads.length < 2) return;
     const start = this.pick(this.tiles.roads)!;
-    const walker = this.makeWalker(start, this.pick(this.tiles.roads)!, 5.5, 3, 'car');
-    if (walker) {
-      this.tint(this.meshOf.car, this.cars.length, 0.9, 1.1);
-      this.cars.push(walker);
-    }
+    this.requestSpawn('car', start, this.pick(this.tiles.roads)!);
   }
 
   private spawnShip(): void {
-    if (this.ships.length >= MAX_SHIPS || this.tiles.waterEdge.length < 2) return;
+    if (this.ships.length >= PERF_CONFIG.maxShips || this.tiles.waterEdge.length < 2) return;
     const start = this.pick(this.tiles.waterEdge)!;
-    const walker = this.makeWalker(start, this.pick(this.tiles.waterEdge)!, 2.8, 7, 'ship');
-    if (walker) {
-      this.tint(this.meshOf.ship, this.ships.length, 0.85, 1.15);
-      this.ships.push(walker);
-    }
+    this.requestSpawn('ship', start, this.pick(this.tiles.waterEdge)!);
   }
 
   private spawnTrain(): void {
-    if (this.trains.length >= MAX_TRAINS || this.tiles.rails.length < 4) return;
+    if (this.trains.length >= PERF_CONFIG.maxTrains || this.tiles.rails.length < 4) return;
     const start = this.pick(this.tiles.rails)!;
-    const goal = this.pick(this.tiles.rails)!;
-    const result = findRailPath(this.grid!, start, goal);
-    if (!result.found || result.path.length < 2) return;
-    this.trains.push({
-      path: result.path,
-      dist: 0,
-      total: pathLength(result.path),
-      speed: 3 + this.rng() * 1.2,
-      dwell: 4 + this.rng() * 4,
-      dwellT: 4, // depart immediately
-    });
+    this.requestSpawn('train', start, this.pick(this.tiles.rails)!);
   }
 
-  private makeWalker(start: GridPoint, goal: GridPoint, speed: number, dwell: number, role: Role): Walker | null {
+  /** Path lookup: cache first; otherwise budgeted A*; `undefined` = defer. */
+  private pathFor(role: Role | 'train', from: GridPoint, to: GridPoint): GridPoint[] | null | undefined {
+    const key = `${role}|${from.x},${from.y}>${to.x},${to.y}`;
+    const entry = this.pathCache.get(key);
+    if (entry && this.frame - entry.frame <= PERF_CONFIG.pathCacheFrames) return entry.path;
+    if (this.budgetUsed >= PERF_CONFIG.pathsPerFrame) return undefined;
+    this.budgetUsed++;
+    const path = this.computePath(role, from, to);
+    this.cachePath(key, path);
+    return path;
+  }
+
+  private computePath(role: Role | 'train', from: GridPoint, to: GridPoint): GridPoint[] | null {
     const grid = this.grid!;
     const result =
       role === 'car'
-        ? findRoadPath(grid, start, goal)
+        ? findRoadPath(grid, from, to)
         : role === 'ship'
-          ? findWaterPath(grid, start, goal)
-          : findTerrainPath(grid, start, goal);
-    if (!result.found || result.path.length < 2) return null;
+          ? findWaterPath(grid, from, to)
+          : role === 'train'
+            ? findRailPath(grid, from, to)
+            : findTerrainPath(grid, from, to);
+    return result.found && result.path.length >= 2 ? result.path : null;
+  }
+
+  private cachePath(key: string, path: GridPoint[] | null): void {
+    this.pathCache.set(key, { path, frame: this.frame });
+    if (this.pathCache.size > 4096) {
+      const cutoff = this.frame - PERF_CONFIG.pathCacheFrames;
+      for (const [k, v] of this.pathCache) {
+        if (v.frame < cutoff) this.pathCache.delete(k);
+      }
+    }
+  }
+
+  /** Route a spawn through the path budget, deferring when it's exhausted. */
+  private requestSpawn(role: Role | 'train', from: GridPoint, to: GridPoint): void {
+    const path = this.pathFor(role, from, to);
+    if (path === undefined) {
+      this.spawnQueue.push({ role, from, to });
+      return;
+    }
+    if (path) this.spawnWithPath(role, path);
+  }
+
+  private spawnWithPath(role: Role | 'train', path: GridPoint[]): void {
+    if (role === 'train') {
+      if (this.trains.length >= PERF_CONFIG.maxTrains) return;
+      this.trains.push({
+        path,
+        dist: 0,
+        total: pathLength(path),
+        speed: 3 + this.rng() * 1.2,
+        dwell: 4 + this.rng() * 4,
+        dwellT: 4, // depart immediately
+      });
+      return;
+    }
+    const list = role === 'citizen' ? this.citizens : role === 'car' ? this.cars : this.ships;
+    const mesh = this.meshOf[role];
+    const cap = role === 'citizen' ? PERF_CONFIG.maxCitizens : role === 'car' ? PERF_CONFIG.maxCars : PERF_CONFIG.maxShips;
+    if (list.length >= cap) return;
+    const speed = role === 'citizen' ? 1.4 : role === 'car' ? 5.5 : 2.8;
+    const dwell = role === 'citizen' ? 4 : role === 'car' ? 3 : 7;
+    const walker = this.makeWalkerFromPath(path, speed, dwell);
+    this.tint(mesh, list.length, role === 'car' ? 0.9 : 0.85, role === 'car' ? 1.1 : 1.15);
+    list.push(walker);
+  }
+
+  private makeWalkerFromPath(path: GridPoint[], speed: number, dwell: number): Walker {
     return {
-      path: result.path,
+      path,
       seg: 0,
       t: 0,
       speed: speed * (0.8 + this.rng() * 0.4),
       dwell: dwell * (0.6 + this.rng() * 0.8),
       dwellT: dwell, // start moving immediately; dwell applies after arrival
       phase: this.rng() * Math.PI * 2,
+      awaitingPath: false,
     };
   }
 
@@ -304,6 +421,59 @@ export class CityLife {
     return this.pick(this.tiles.commercial) ?? this.pick(this.tiles.industrial);
   }
 
+  /** Up to 4 distinct candidate destinations, mirroring the old attempt loop. */
+  private pickDestinations(role: Role): GridPoint[] {
+    const picks: GridPoint[] = [];
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const next = this.nextDestination(role);
+      if (next && !picks.some((c) => c.x === next.x && c.y === next.y)) picks.push(next);
+    }
+    return picks;
+  }
+
+  private walkerAt(role: Role, id: number): Walker {
+    if (role === 'citizen') return this.citizens[id];
+    if (role === 'car') return this.cars[id];
+    return this.ships[id];
+  }
+
+  private setWalker(role: Role, id: number, w: Walker): void {
+    if (role === 'citizen') this.citizens[id] = w;
+    else if (role === 'car') this.cars[id] = w;
+    else this.ships[id] = w;
+  }
+
+  /** A walker finished its trip: pick destinations and resolve a fresh path.
+   *  Cache hits are free; budgeted A* fills the gaps; when the frame budget is
+   *  exhausted the walker parks and the request goes through the queue. */
+  private repathAfterArrival(role: Role, walkerId: number): Walker | null {
+    const candidates = this.pickDestinations(role);
+    return candidates.length === 0 ? null : this.resolveCandidates(role, walkerId, candidates);
+  }
+
+  private resolveCandidates(role: Role, walkerId: number, candidates: GridPoint[]): Walker | null {
+    const w = this.walkerAt(role, walkerId);
+    const from = w.path[w.path.length - 1];
+    for (const to of candidates) {
+      const path = this.pathFor(role, from, to);
+      if (path === undefined) {
+        // Frame budget exhausted — park the walker and resume from this candidate.
+        w.awaitingPath = true;
+        this.pathQueue.push({ role, walkerId, from, candidates: candidates.slice(candidates.indexOf(to)) });
+        return null;
+      }
+      if (path) return this.makeWalkerFromPath(path, w.speed, w.dwell);
+    }
+    return null; // no route to any candidate — dwell & try again later
+  }
+
+  private processRepath(req: RepathRequest): void {
+    const w = this.walkerAt(req.role, req.walkerId);
+    w.awaitingPath = false;
+    const fresh = this.resolveCandidates(req.role, req.walkerId, req.candidates);
+    if (fresh) this.setWalker(req.role, req.walkerId, fresh);
+  }
+
   private stepWalkers(walkers: Walker[], mesh: THREE.InstancedMesh, dt: number, role: Role): void {
     const grid = this.grid!;
     const cx = grid.width / 2;
@@ -314,6 +484,12 @@ export class CityLife {
 
     for (let i = 0; i < walkers.length; i++) {
       const w = walkers[i];
+      if (w.awaitingPath) {
+        // Waiting on the budgeted pathfinder for a new trip — stay at the
+        // destination instead of recomputing A* right now.
+        this.place(mesh, i, w.path[w.path.length - 1], w, bodyH, cx, cz, 0, scale);
+        continue;
+      }
       if (w.dwellT < w.dwell) {
         w.dwellT += dt;
         this.place(mesh, i, w.path[w.seg], w, bodyH, cx, cz, 0, scale);
@@ -322,15 +498,12 @@ export class CityLife {
       if (w.seg >= w.path.length - 1) {
         w.dwellT = 0;
         const at = w.path[w.path.length - 1];
-        let fresh: Walker | null = null;
-        for (let attempt = 0; attempt < 4 && !fresh; attempt++) {
-          const next = this.nextDestination(role);
-          if (next) fresh = this.makeWalker(at, next, w.speed, w.dwell, role);
-        }
+        const fresh = this.repathAfterArrival(role, i);
         if (fresh) {
           walkers[i] = fresh;
           this.place(mesh, i, fresh.path[0], fresh, bodyH, cx, cz, 0, scale);
         } else {
+          // Parked: no route (dwell will retry later) or path still resolving.
           this.place(mesh, i, at, w, bodyH, cx, cz, 0, scale);
         }
         continue;

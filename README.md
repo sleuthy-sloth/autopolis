@@ -160,6 +160,27 @@ Allowed actions: `EXTEND_ROAD` · `SET_ZONING` · `BUILD_STRUCTURE` · `UPGRADE_
     prints the city JSON; seed 1337 reproduces the TS city tile-for-tile
   - Next: WASM packaging (`wasm-pack`) so the Node engine can load the Rust core
     behind the same interface — swap via `AUTOPOLIS_CORE=rust|ts`
+- [x] **Reliability pass** *(shipped)*
+  - Agent failures log and keep the 1 Hz loop alive (no more unhandled-rejection crashes)
+  - WebSocket reconnect with exponential backoff (1s → 30s cap); malformed frames
+    logged with counters instead of silently swallowed
+  - Client WS endpoint overridable via `VITE_AUTOPOLIS_WS_URL`
+- [x] **Perf pass** *(shipped)*
+  - Tiered rain particles (0 / 300 / 900 by cores + mobile UA), tunable entity caps
+    via `localStorage` (`autopolis.perf.maxCitizens`, `pathsPerFrame`, …)
+  - A\* frame budget (8/frame) + frame-dated path cache — worst-case path cost
+    capped regardless of population
+- [x] **CityScene split** *(shipped)*
+  - `TileRenderer` (tiles/overlay/selection), `WeatherSystem` (rain/sky/water),
+    `InputHandler` (picking/resize) — same exports, no visual changes
+- [x] **Disk persistence** *(shipped)*
+  - Seed-keyed snapshots (`data/city-<seed>.json`, override `AUTOPOLIS_SAVE_DIR`),
+    atomic tmp+rename writes, resume on boot, Save/Load over the WS `command` channel
+- [x] **Shared TS↔Rust contract tests** *(shipped)*
+  - Pinned seeds × ticks → grid hashes in `packages/core/test/contract.fixture.json`
+    (regen: `GEN_CONTRACT=1`); Rust consumes the identical golden file — same seed,
+    same world, both languages, CI-enforced
+  - Client smoke tests (WS lifecycle, HUD, seed flow; jsdom, WebGL-guarded mount)
 
 ## 📁 Repository Layout
 
@@ -207,9 +228,20 @@ The viewport runs standalone; when the engine is up (it is, via `npm run dev`) t
 | Command | What it does |
 |---|---|
 | `npm run dev` | Engine + viewport together |
-| `npm test` | Core engine unit tests (vitest) |
+| `npm test` | All workspace tests (core + server vitest) |
+| `npx vitest run` | Full suite incl. client jsdom smoke tests |
+| `cargo test` | Rust core tests incl. TS-shared contract parity |
 | `npm run typecheck` | Strict typecheck across all workspaces |
 | `npm run build` | Production bundle (client) + typecheck (server) |
+
+### Env vars
+
+| Var | Where | Default | Role |
+|---|---|---|---|
+| `VITE_AUTOPOLIS_WS_URL` | client | `ws://localhost:8788` | Engine WS endpoint |
+| `AUTOPOLIS_SAVE_DIR` | server | `./data` | Snapshot dir (`city-<seed>.json`) |
+| `AUTOPOLIS_LLM_API_KEY` | server | unset (mock agent) | Real-model planner key |
+| `AUTOPOLIS_LLM_MODEL` | server | `deepseek/deepseek-chat-v3-0324:free` | Planner model id |
 
 ## 🎲 Determinism by Design
 

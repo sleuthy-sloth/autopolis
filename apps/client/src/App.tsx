@@ -7,7 +7,6 @@ import type { HistoryPoint } from './ui/Charts';
 import { useEngine, type EngineMessage } from './useEngine';
 
 const GRID_SIZE = 64;
-const ENGINE_WS_URL = 'ws://localhost:8788';
 
 interface ServerWorld {
   grid: SpatialGrid;
@@ -16,6 +15,7 @@ interface ServerWorld {
   city: { treasury: number; taxRate: number; weather: Weather } | null;
   events: string[];
   history: HistoryPoint[];
+  lastSavedTick: number | null;
 }
 
 export default function App() {
@@ -39,6 +39,9 @@ export default function App() {
 
   const handleState = useCallback((msg: EngineMessage) => {
     if (!msg.grid) return;
+    // lastSavedTick rides along on world:state; type it narrowly here since
+    // EngineMessage (useEngine) only declares the fields it interprets itself.
+    const raw = msg as EngineMessage & { lastSavedTick?: unknown };
     setServerWorld({
       grid: SpatialGrid.deserialize(msg.grid as Parameters<typeof SpatialGrid.deserialize>[0]),
       stats: (msg.stats as CityStats | undefined) ?? null,
@@ -46,10 +49,11 @@ export default function App() {
       city: (msg.city as { treasury: number; taxRate: number; weather: Weather } | undefined) ?? null,
       events: (msg.events as string[] | undefined) ?? [],
       history: (msg.history as HistoryPoint[] | undefined) ?? [],
+      lastSavedTick: typeof raw.lastSavedTick === 'number' ? raw.lastSavedTick : null,
     });
   }, []);
 
-  const { status, tick, send, godAction, command } = useEngine(ENGINE_WS_URL, handleState);
+  const { status, tick, send, godAction, command } = useEngine(undefined, handleState);
 
   // Mount the scene once; grid swaps happen in place via replaceGrid.
   useEffect(() => {
@@ -108,6 +112,16 @@ export default function App() {
     if (status === 'connected') command('disaster', undefined, kind);
   };
 
+  const saveCity = (): void => {
+    if (status === 'connected') command('save');
+  };
+
+  const loadCity = (): void => {
+    if (status === 'connected') command('load');
+  };
+
+  const lastSavedTick = serverWorld?.lastSavedTick ?? null;
+
   return (
     <div className="app">
       <div ref={mountRef} className="viewport" />
@@ -138,6 +152,39 @@ export default function App() {
         onWeather={setWeather}
         onDisaster={triggerDisaster}
       />
+      <div
+        className="persistence-bar"
+        style={{
+          position: 'absolute',
+          bottom: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          zIndex: 10,
+        }}
+      >
+        <span className="chip">
+          💾 {lastSavedTick !== null ? `last saved tick ${lastSavedTick.toLocaleString()}` : 'never saved'}
+        </span>
+        <button
+          className="btn"
+          onClick={saveCity}
+          disabled={status !== 'connected'}
+          title={status === 'connected' ? 'Save city snapshot to disk' : 'Engine offline — no snapshot target'}
+        >
+          💾 Save
+        </button>
+        <button
+          className="btn"
+          onClick={loadCity}
+          disabled={status !== 'connected'}
+          title={status === 'connected' ? 'Reload city from its snapshot' : 'Engine offline — no snapshot source'}
+        >
+          🗂 Load
+        </button>
+      </div>
     </div>
   );
 }

@@ -3,7 +3,11 @@
  *
  * HTTP:  GET /health → JSON engine status + city stats
  * WS:    world:state on connect/grid-change, tick heartbeats at 1 Hz;
- *        accepts { type: 'reset' } from clients
+ *        accepts { type: 'reset' } and god commands ('grant', 'weather',
+ *        'disaster', 'save', 'load') from clients
+ *
+ * Persistence: the city is snapshotted to data/city-<seed>.json on command
+ * ('save' / 'load') and restored from it on startup when present.
  *
  * Phase 3: agents decide every few ticks. With AUTOPOLIS_LLM_API_KEY set the
  * City Planner reasons via an OpenAI-compatible endpoint (OpenRouter by
@@ -11,12 +15,13 @@
  * deterministic MockAgent keeps the pipeline alive and testable.
  *
  * Env (loaded from apps/server/.env when present): PORT (8788), SEED (1337),
+ *      AUTOPOLIS_SAVE_DIR (snapshot dir, default <cwd>/data),
  *      AUTOPOLIS_LLM_BASE_URL, AUTOPOLIS_LLM_API_KEY, AUTOPOLIS_LLM_MODEL.
  */
 import 'dotenv/config';
 import http from 'node:http';
 import { parseAgentAction, type AgentAction, type CityBriefing } from '@autopolis/core';
-import { World } from './world';
+import { World, savePathFor } from './world';
 import { attachWs } from './ws';
 import { AgentRunner, type DecideFn } from './agents/runner';
 import { MockAgent } from './agents/mock';
@@ -26,7 +31,18 @@ import { systemPrompt, userPrompt } from './agents/prompt';
 const PORT = Number(process.env.PORT ?? 8788);
 const SEED = Number(process.env.SEED ?? 1337);
 
-const world = new World(SEED);
+// Persistence: restore the city from its seed-keyed snapshot when one exists,
+// otherwise start fresh. Either way the live path is logged for operators.
+const SAVE_PATH = savePathFor(SEED);
+const loadedFromFile = World.loadFromFile(SAVE_PATH);
+const world = loadedFromFile ?? new World(SEED);
+if (loadedFromFile) {
+  console.log(
+    `[autopolis] loaded city snapshot from ${SAVE_PATH} — seed ${world.seed}, resuming at tick ${world.tick}`,
+  );
+} else {
+  console.log(`[autopolis] no snapshot at ${SAVE_PATH} — starting fresh with seed ${world.seed}`);
+}
 
 /** Real-LLM decide: chat → Zod-validate (one retry on garbage). */
 function makeLlmDecide(cfg: LlmConfig, agentId: string): DecideFn {
@@ -86,6 +102,17 @@ const broadcast = attachWs(server, {
       if (world.setWeather(String(value))) broadcast(world.stateMessage());
     } else if (command === 'disaster' && value) {
       if (world.disaster(String(value))) broadcast(world.stateMessage());
+    } else if (command === 'save') {
+      // Manual snapshot — failures are still news so the client sees them.
+      if (!world.save()) {
+        world.logEvent('⚠️ Snapshot save failed — see server logs.');
+      }
+      broadcast(world.stateMessage());
+    } else if (command === 'load') {
+      if (!world.load()) {
+        world.logEvent(`⚠️ Snapshot load failed — no save at ${savePathFor(world.seed)}.`);
+      }
+      broadcast(world.stateMessage());
     }
   },
 });
@@ -98,11 +125,18 @@ setInterval(() => {
   // Async agent turn — never blocks the 1 Hz loop.
   const due = runner.due(world);
   if (due) {
-    runner.run(world, due).then((outcome) => {
-      // Broadcast after every decision so the newsfeed stays fresh — even
-      // failures are news (the event log changed even if the grid didn't).
-      broadcast(world.stateMessage());
-    });
+    runner
+      .run(world, due)
+      .then(() => {
+        // Broadcast after every decision so the newsfeed stays fresh — even
+        // failures are news (the event log changed even if the grid didn't).
+        broadcast(world.stateMessage());
+      })
+      .catch((err) => {
+        // Fallible decide() paths (bad LLM output, upstream timeouts) must
+        // never take down the process — log and keep the loop alive.
+        console.error('[autopolis] agent run failed:', err);
+      });
   }
 }, 1000);
 
