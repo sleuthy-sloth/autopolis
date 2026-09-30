@@ -144,6 +144,7 @@ export default function App() {
         onCycleOverlay={cycleOverlay}
       />
       <GodPanel
+        disabled={status !== 'connected' || !serverWorld?.city}
         grid={activeGrid}
         taxRate={serverWorld?.city?.taxRate ?? null}
         weather={serverWorld?.city?.weather ?? 'clear'}

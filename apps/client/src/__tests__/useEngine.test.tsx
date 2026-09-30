@@ -80,6 +80,14 @@ describe('useEngine — WebSocket status transitions', () => {
     document.body.innerHTML = '';
   });
 
+  it('accepts snapshot tick zero after a reset', () => {
+    const h = mountHarness('ws://localhost:8788');
+    act(() => h.ws().message({ type: 'tick', tick: 150 }));
+    act(() => h.ws().message({ type: 'world:state', tick: 0, grid: {} }));
+    expect(h.tickText()).toBe('0');
+    act(() => h.root.unmount());
+  });
+
   it('starts connecting and reaches connected on open', () => {
     const h = mountHarness('ws://localhost:8788');
     expect(h.statusText()).toBe('connecting');
