@@ -202,7 +202,7 @@ describe('HUD with mock server state', () => {
     expect(inspector?.textContent).toContain('3, 2');
     expect(inspector?.textContent).toContain('grass');
     expect(inspector?.textContent).toContain('0.523');
-    expect(h.container.querySelector('.charts-panel')?.textContent).toContain('TELEMETRY');
+    expect(h.container.querySelector('.charts-panel')?.textContent).toContain('City trends');
     act(() => h.root.unmount());
   });
 });

@@ -52,7 +52,7 @@ function Panel({ label, children, right }: { label: string; children: React.Reac
         <span className="chart-label">{label}</span>
         {right && <span className="chart-right">{right}</span>}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="chart-svg">
+      <svg role="img" aria-label={`${label.toLowerCase()} history`} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="chart-svg">
         {children}
       </svg>
     </div>
@@ -67,28 +67,27 @@ export function Charts({ history }: { history: HistoryPoint[] }) {
 
   if (history.length < 2) {
     return (
-      <div className="charts-panel panel">
-        <h3>TELEMETRY</h3>
-        <p className="muted">Collecting data…</p>
+      <div className="charts-panel">
+        <p className="panel-intro">City trends over the last six minutes.</p>
+        <p className="muted">Trends appear after the engine sends a few updates.</p>
       </div>
     );
   }
 
   const popMax = Math.max(...pop);
-  const popMin = Math.min(...pop);
   const trMax = Math.max(...treasury);
-  const trMin = Math.min(...treasury);
 
+  const latest = history[history.length - 1];
   return (
-    <div className="charts-panel panel">
-      <h3>TELEMETRY</h3>
-      <Panel label="POPULATION" right={`${popMax.toLocaleString()}`}>
+    <div className="charts-panel">
+      <p className="panel-intro">City trends over the last six minutes.</p>
+      <Panel label="Population" right={latest.population.toLocaleString()}>
         {sparkline(pop, 0, Math.max(popMax, 1), '#6fae4f', true)}
       </Panel>
-      <Panel label="TREASURY" right={`${Math.round(trMax).toLocaleString()}¤`}>
+      <Panel label="Treasury" right={`${Math.round(latest.treasury).toLocaleString()}¤`}>
         {sparkline(treasury, 0, Math.max(trMax, 1), '#e8c15a', true)}
       </Panel>
-      <Panel label="COVERAGE" right={`⚡${power[power.length - 1].toFixed(0)}% 💧${water[water.length - 1].toFixed(0)}%`}>
+      <Panel label="Coverage" right={`Power ${power[power.length - 1].toFixed(0)}% / Water ${water[water.length - 1].toFixed(0)}%`}>
         {sparkline(power, 0, 100, '#5fd0ff')}
         {sparkline(water, 0, 100, '#45aaf2')}
       </Panel>
