@@ -93,8 +93,9 @@ export function useEngine(
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data as string) as EngineMessage;
-          if (msg.type === 'tick' && typeof msg.tick === 'number') setTick(msg.tick);
-          else if (msg.type === 'world:state') onStateRef.current(msg);
+          if ((msg.type === 'tick' || msg.type === 'world:state') &&
+              typeof msg.tick === 'number' && Number.isFinite(msg.tick)) setTick(msg.tick);
+          if (msg.type === 'world:state') onStateRef.current(msg);
         } catch {
           malformedRef.current += 1;
           const preview = String(ev.data).slice(0, 80).replace(/\s+/g, ' ');

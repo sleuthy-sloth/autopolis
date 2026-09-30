@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SpatialGrid, generateTerrain, type CityStats } from '@autopolis/core';
 import { CityScene, type OverlayMode, type SceneStats, type TileSelection, type Weather } from './engine/CityScene';
-import { HUD } from './ui/HUD';
+import { ConfirmDialog } from './ui/ConfirmDialog';
+import { CityControls } from './ui/CityControls';
+import { HelpPanel, readHelpPreference, dismissHelpPreference } from './ui/HelpPanel';
+import { StoriesPanel } from './ui/StoriesPanel';
+import { Charts } from './ui/Charts';
+import { HUD, type PanelName } from './ui/HUD';
 import { GodPanel, type GodActionInput } from './ui/GodPanel';
 import type { HistoryPoint } from './ui/Charts';
 import { useEngine, type EngineMessage } from './useEngine';
@@ -25,6 +30,9 @@ export default function App() {
   const [selection, setSelection] = useState<TileSelection | null>(null);
   const [stats, setStats] = useState<SceneStats | null>(null);
   const [life, setLife] = useState<{ citizens: number; cars: number; ships: number; trains: number } | null>(null);
+  const [activePanel, setActivePanel] = useState<PanelName | null>(() => readHelpPreference() ? 'help' : null);
+  const [confirmation, setConfirmation] = useState<'new-city' | 'load' | 'disaster' | null>(null);
+  const [pendingDisaster, setPendingDisaster] = useState('');
   const [overlay, setOverlay] = useState<OverlayMode>('none');
   const [serverWorld, setServerWorld] = useState<ServerWorld | null>(null);
 
@@ -83,17 +91,16 @@ export default function App() {
     if (serverWorld?.city?.weather) sceneRef.current?.setWeather(serverWorld.city.weather);
   }, [serverWorld?.city?.weather]);
 
+  useEffect(() => { setSelection(null); }, [activeGrid.seed]);
+
   const newSeed = (): void => {
+    setSelection(null);
     if (status === 'connected') {
       send({ type: 'reset' }); // engine regenerates + broadcasts the new world
     } else {
       setServerWorld(null);
       setSeed(Math.floor(Math.random() * 1_000_000_000));
     }
-  };
-
-  const cycleOverlay = (): void => {
-    setOverlay((m) => (m === 'none' ? 'power' : m === 'power' ? 'water' : 'none'));
   };
 
   const godActionHandler = (a: GodActionInput): void => {
@@ -121,70 +128,50 @@ export default function App() {
   };
 
   const lastSavedTick = serverWorld?.lastSavedTick ?? null;
+  const hasResources = status === 'connected' && serverWorld?.resources != null;
+  useEffect(() => { if (!hasResources) setOverlay('none'); }, [hasResources]);
+  const changePanel = (panel: PanelName | null): void => {
+    if (activePanel === 'help') dismissHelpPreference();
+    setActivePanel(panel);
+  };
+  const diagnostics = <dl className="world-details">
+    <dt>Seed</dt><dd>{activeGrid.seed}</dd><dt>Biome</dt><dd>{activeGrid.biome}</dd>
+    <dt>Grid</dt><dd>{activeGrid.width} × {activeGrid.height}</dd><dt>Simulation tick</dt><dd>{tick ?? '—'}</dd>
+    <dt>Frame rate</dt><dd>{stats ? `${stats.fps.toFixed(0)} fps` : '—'}</dd>
+    <dt>Rendered tiles</dt><dd>{stats?.tiles.toLocaleString() ?? '—'}</dd>
+    {life && <><dt>Visible citizens</dt><dd>{life.citizens}</dd><dt>Vehicles</dt><dd>{life.cars} cars, {life.ships} ships, {life.trains} trains</dd></>}
+  </dl>;
+  const panelContent = activePanel === 'stories' ?
+    <StoriesPanel events={serverWorld?.events ?? []} tick={tick} connected={status === 'connected'} /> :
+    activePanel === 'trends' ? <Charts history={serverWorld?.history ?? []} /> :
+    activePanel === 'help' ? <HelpPanel status={status} hasWorld={serverWorld !== null} onDismiss={() => changePanel(null)} /> :
+    activePanel === 'city' ? <CityControls connected={status === 'connected'} lastSavedTick={lastSavedTick}
+      onSave={saveCity} onLoad={() => setConfirmation('load')} onNewCity={() => setConfirmation('new-city')} diagnostics={diagnostics} /> :
+    activePanel === 'intervene' ? <GodPanel disabled={status !== 'connected' || !serverWorld?.city} grid={activeGrid}
+      taxRate={serverWorld?.city?.taxRate ?? null} weather={serverWorld?.city?.weather ?? 'clear'}
+      onAction={godActionHandler} onGrant={grantTreasury} onWeather={setWeather}
+      onDisaster={kind => { setPendingDisaster(kind); setConfirmation('disaster'); }} /> : null;
 
   return (
     <div className="app">
       <div ref={mountRef} className="viewport" />
       <div className="vignette" />
-      <HUD
-        grid={activeGrid}
-        seed={serverWorld?.grid.seed ?? seed}
-        selection={selection}
-        stats={stats}
-        life={life}
-        cityStats={serverWorld?.stats ?? null}
-        city={serverWorld?.city ?? null}
-        events={serverWorld?.events ?? []}
-        history={serverWorld?.history ?? []}
-        serverStatus={status}
-        serverTick={tick}
-        overlay={overlay}
-        hasResources={serverWorld?.resources !== null}
-        onNewSeed={newSeed}
-        onCycleOverlay={cycleOverlay}
-      />
-      <GodPanel
-        grid={activeGrid}
-        taxRate={serverWorld?.city?.taxRate ?? null}
-        weather={serverWorld?.city?.weather ?? 'clear'}
-        onAction={godActionHandler}
-        onGrant={grantTreasury}
-        onWeather={setWeather}
-        onDisaster={triggerDisaster}
-      />
-      <div
-        className="persistence-bar"
-        style={{
-          position: 'absolute',
-          bottom: 20,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          zIndex: 10,
-        }}
-      >
-        <span className="chip">
-          💾 {lastSavedTick !== null ? `last saved tick ${lastSavedTick.toLocaleString()}` : 'never saved'}
-        </span>
-        <button
-          className="btn"
-          onClick={saveCity}
-          disabled={status !== 'connected'}
-          title={status === 'connected' ? 'Save city snapshot to disk' : 'Engine offline — no snapshot target'}
-        >
-          💾 Save
-        </button>
-        <button
-          className="btn"
-          onClick={loadCity}
-          disabled={status !== 'connected'}
-          title={status === 'connected' ? 'Reload city from its snapshot' : 'Engine offline — no snapshot source'}
-        >
-          🗂 Load
-        </button>
-      </div>
+      <HUD selection={selection} cityStats={serverWorld?.stats ?? null} city={serverWorld?.city ?? null}
+        serverStatus={status} hasWorld={serverWorld !== null} overlay={overlay} hasResources={hasResources}
+        activePanel={activePanel} onPanelChange={changePanel} onOverlayChange={setOverlay} panelContent={panelContent} />
+      {confirmation && <ConfirmDialog
+        title={confirmation === 'new-city' ? 'Start a new city?' : confirmation === 'load' ? 'Load your saved city?' : `Trigger ${pendingDisaster}?`}
+        description={confirmation === 'disaster' ? 'This damages the current city and costs treasury funds.' : 'This replaces the current world. Unsaved progress may be lost.'}
+        confirmLabel={confirmation === 'new-city' ? 'New city' : confirmation === 'load' ? 'Load saved city' : `Trigger ${pendingDisaster}`}
+        onCancel={() => setConfirmation(null)}
+        onFocusFallback={() => document.querySelector<HTMLButtonElement>('[data-nav="city"]')?.focus()}
+        onConfirm={() => {
+          if (confirmation === 'new-city') newSeed();
+          else if (confirmation === 'load' && status === 'connected') { setSelection(null); loadCity(); }
+          else if (confirmation === 'disaster' && status === 'connected') triggerDisaster(pendingDisaster);
+          setConfirmation(null);
+        }} />}
+
     </div>
   );
 }

@@ -136,6 +136,8 @@ export class World {
   reset(): void {
     this.seed = Math.floor(Math.random() * 1_000_000_000);
     this.tick = 0;
+    this.lastSavedTick = null;
+    this.lastSavedAt = null;
     this.grid.fill(TILE_TYPES.GRASS);
     this.grid.elevations.fill(0);
     generateTerrain(this.grid, { seed: this.seed });

@@ -218,10 +218,19 @@ Open **http://localhost:5173** — you should see a procedurally generated islan
 | 🖱️ **Drag** | Orbit the camera |
 | 🔍 **Scroll** | Zoom |
 | 👆 **Click a tile** | Inspect it (position / type / elevation) |
-| ⟳ **New Seed** | Regenerate the world |
+| **City → New city** | Confirm and generate a new world |
+| **Stories** | Read planner decisions and city milestones |
+| **Intervene** | Adjust taxes, construct infrastructure, change weather |
+| **Natural / Power / Water** | Select the coverage view |
+| **City → Save / Load** | Keep or restore a snapshot on the engine machine |
+| **Help** | Reopen camera controls and the first-use guide |
 
 The viewport runs standalone; when the engine is up (it is, via `npm run dev`) the HUD shows
-`connected · tick N` as the 1 Hz simulation marches on.
+`City live` as the 1 Hz simulation marches on.
+
+Growth unfolds over minutes: roads appear first, then neighborhoods. The planner begins after two minutes of simulation and decides every 15 ticks. With no model configured, a deterministic demonstration planner drives the same action pipeline. The first-use guide explains this in the app.
+
+The interface uses one drawer on desktop and one bottom sheet on phones. City health stays visible; Stories keeps full event text. Engine-dependent actions are disabled while disconnected, and the app distinguishes a terrain preview from the last received city. World replacements and disasters ask for confirmation.
 
 ### Scripts
 
@@ -273,10 +282,10 @@ The city **grows itself** on a deterministic schedule — roads first, then dist
 
 - **Roads** pave anything except water (beltways don't stop for hills); downtown flattens stone.
 - **Power & water** flood from plants/towers through land, attenuating over range (max 14 tiles),
-  blocked by water — click **`Overlay: off → power → water`** to see live coverage (green = served).
+  blocked by water — click **Power or Water** to see live coverage (green = served).
 - **A\*** routes vehicles on the road graph (4-dir) and citizens across terrain (8-dir, diagonal √2).
 - The engine is authoritative: it broadcasts full world state over WebSocket; the viewport just renders.
-  `⟳ New Seed` regenerates the world through the same channel.
+  `City → New city` regenerates the world through the same channel.
 
 ## 🏙️ Entity & Visual Layer (Phase 2.5)
 
@@ -306,7 +315,7 @@ merged-geometry + vertex colors, so each model class is one InstancedMesh draw c
 | `coastal` | Sea along one edge, land opposite | ⛵ along the shore |
 | `inland` | No ocean — noise-carved lakes | 🛶 on the lakes |
 
-The biome rolls deterministically from the seed (HUD shows it); `⟳ New Seed` rolls a new world.
+The biome rolls deterministically from the seed (HUD shows it); `City → New city` rolls a new world.
 
 ### Growth — built from nothing
 
