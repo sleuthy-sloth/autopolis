@@ -20,6 +20,7 @@ import {
   type GridPoint,
 } from '@autopolis/core';
 import { tileHeight } from './structures';
+import { terrainHeightAt } from './terrain';
 import { modelMaterial, modelSet, type ModelKind } from './models';
 
 /**
@@ -478,9 +479,9 @@ export class CityLife {
     const grid = this.grid!;
     const cx = grid.width / 2;
     const cz = grid.height / 2;
-    const bodyH = role === 'car' ? 0.22 : role === 'ship' ? 0.18 : 0.55;
+    const bodyH = role === 'ship' ? 0.025 : 0.01;
     const bobAmp = role === 'citizen' ? 0.03 : role === 'ship' ? 0.02 : 0;
-    const scale = role === 'citizen' ? 0.85 : 1;
+    const scale = role === 'citizen' ? 0.45 : role === 'car' ? 0.65 : 1;
 
     for (let i = 0; i < walkers.length; i++) {
       const w = walkers[i];
@@ -571,8 +572,8 @@ export class CityLife {
     cx: number,
     cz: number,
   ): void {
-    this.dummy.position.set(at.x - cx, railH + 0.22, at.y - cz);
-    this.dummy.rotation.set(0, at.angle, 0);
+    this.dummy.position.set(at.x - cx, railH + 0.035, at.y - cz);
+    this.dummy.rotation.set(0, -at.angle, 0);
     this.dummy.scale.set(1, 1, 1);
     this.dummy.updateMatrix();
     mesh.setMatrixAt(index, this.dummy.matrix);
@@ -590,14 +591,12 @@ export class CityLife {
     scale: number,
   ): void {
     const grid = this.grid!;
-    const tx = Math.round(at.x);
-    const ty = Math.round(at.y);
-    const ground = tileHeight(grid.get(tx, ty), grid.getElevation(tx, ty));
+    const ground = terrainHeightAt(grid, at.x, at.y);
     const bob = bobAmp * Math.sin(w.phase + performance.now() / 240);
     this.dummy.position.set(at.x - cx, ground + bodyH + bob, at.y - cz);
     const a = w.path[w.seg];
     const b = w.path[Math.min(w.seg + 1, w.path.length - 1)];
-    this.dummy.rotation.set(0, Math.atan2(b.y - a.y, b.x - a.x), 0);
+    this.dummy.rotation.set(0, -Math.atan2(b.y - a.y, b.x - a.x), 0);
     this.dummy.scale.set(scale, scale, scale);
     this.dummy.updateMatrix();
     mesh.setMatrixAt(index, this.dummy.matrix);
