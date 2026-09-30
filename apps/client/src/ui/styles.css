@@ -17,7 +17,7 @@ body { background: var(--bg); color: var(--text); overflow: hidden; font-family:
 button, input { font: inherit; }
 button { min-height: 44px; cursor: pointer; color: inherit; }
 button:disabled, fieldset:disabled button { opacity: .45; cursor: not-allowed; }
-button:focus-visible, input:focus-visible, summary:focus-visible, .drawer:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:focus-visible, input:focus-visible, summary:focus-visible, .drawer-body:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 h1, h2, h3, p, dl, ol { margin: 0; }
 p { line-height: 1.65; }
 button { transition: background .15s, border-color .15s; }
@@ -167,3 +167,5 @@ legend { padding: 0; font-size: 16px; font-weight: 550; }
   .connection-banner { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { button, .drawer { transition: none; } }
+
+.drawer-body:focus-visible { outline-offset: -4px; }

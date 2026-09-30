@@ -22,7 +22,7 @@ export function ConfirmDialog({ title, description, confirmLabel, onConfirm, onC
     return () => {
       dialog?.close();
       if (opener?.isConnected) opener.focus();
-      else fallbackRef.current?.();
+      if (!opener || document.activeElement !== opener) fallbackRef.current?.();
     };
   }, []);
   return (

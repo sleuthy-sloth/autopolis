@@ -74,6 +74,15 @@ describe('App observatory integration', () => {
     expect(h.container.textContent).toMatch(/last received/i);
     h.unmount();
   });
+  it('focuses the scrollable region when opening a content-only panel', () => {
+    const h = render(<App />);
+    act(() => button(h.container, 'Trends').click());
+    const body = h.container.querySelector('.drawer-body')!;
+    expect(document.activeElement).toBe(body);
+    expect(body.getAttribute('tabindex')).toBe('0');
+    expect(body.getAttribute('aria-label')).toBe('Trends content');
+    h.unmount();
+  });
   it('closes a drawer with Escape and returns focus to its opener', () => {
     const h = render(<App />);
     const trigger = button(h.container, 'Stories'); trigger.focus();

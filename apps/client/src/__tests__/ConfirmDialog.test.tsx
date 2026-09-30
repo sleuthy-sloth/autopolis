@@ -35,6 +35,16 @@ describe('replacement confirmation', () => {
     expect(h.props.onConfirm).toHaveBeenCalledTimes(1);
     h.unmount();
   });
+  it.each(['button', 'fieldset'])('uses a fallback when the opener becomes disabled by %s', kind => {
+    const fieldset = document.createElement('fieldset');
+    const opener = document.createElement('button');
+    fieldset.appendChild(opener); document.body.appendChild(fieldset); opener.focus();
+    const h = setup();
+    if (kind === 'button') opener.disabled = true; else fieldset.disabled = true;
+    h.unmount();
+    expect(h.props.onFocusFallback).toHaveBeenCalledTimes(1);
+    fieldset.remove();
+  });
   it('restores focus to an existing opener or safe fallback', () => {
     const opener = document.createElement('button'); document.body.appendChild(opener); opener.focus();
     const h = setup(); h.unmount(); expect(document.activeElement).toBe(opener);

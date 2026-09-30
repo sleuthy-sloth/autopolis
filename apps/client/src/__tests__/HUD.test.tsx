@@ -14,6 +14,14 @@ describe('observatory shell', () => {
     expect(h.container.querySelector('.tile-inspector')).toBeNull();
     h.unmount();
   });
+  it('starts a different panel at the top instead of retaining the previous scroll position', () => {
+    const p = props(); const h = render(<HUD {...p} activePanel="stories" panelContent={<p>Stories</p>} />);
+    const body = h.container.querySelector<HTMLElement>('.drawer-body')!;
+    body.scrollTop = 100;
+    h.rerender(<HUD {...p} activePanel="help" panelContent={<p>Help</p>} />);
+    expect(body.scrollTop).toBe(0);
+    h.unmount();
+  });
   it('selects panels and overlays explicitly and disables missing resource data', () => {
     const p = props(); const h = render(<HUD {...p} />);
     expect(button(h.container, 'Power').disabled).toBe(true);

@@ -25,7 +25,7 @@ function Metric({ name, value, tone }: { name: string; value: string; tone?: str
 }
 export function HUD({ selection, cityStats, city, serverStatus, hasWorld, overlay, hasResources, activePanel, onPanelChange, onOverlayChange, panelContent }: HUDProps) {
   const navRef = useRef<HTMLElement>(null);
-  const drawerRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(activePanel);
   activeRef.current = activePanel;
   const changeRef = useRef(onPanelChange);
@@ -42,7 +42,10 @@ export function HUD({ selection, cityStats, city, serverStatus, hasWorld, overla
   }, []);
   const previousPanel = useRef(activePanel);
   useEffect(() => {
-    if (activePanel && previousPanel.current !== activePanel) drawerRef.current?.focus();
+    if (activePanel && previousPanel.current !== activePanel && contentRef.current) {
+      contentRef.current.scrollTop = 0;
+      contentRef.current.focus();
+    }
     previousPanel.current = activePanel;
   }, [activePanel]);
   const title = PANELS.find(p => p.id === activePanel)?.label;
@@ -71,9 +74,9 @@ export function HUD({ selection, cityStats, city, serverStatus, hasWorld, overla
         </section>}
         {!connected && <p className="connection-banner">{hasWorld ? 'Last received city. Reconnecting for updates.' : 'Terrain preview. Connect the engine to grow a city.'}</p>}
       </div>
-      {activePanel && <aside ref={drawerRef} tabIndex={-1} className={`drawer drawer-${activePanel}`} aria-labelledby="drawer-title">
+      {activePanel && <aside className={`drawer drawer-${activePanel}`} aria-labelledby="drawer-title">
         <div className="drawer-head"><h2 id="drawer-title">{title}</h2><button aria-label={`Close ${title}`} className="close-panel" onClick={() => { onPanelChange(null); openerRef.current?.focus(); }}>×</button></div>
-        <div className="drawer-body">{panelContent}</div>
+        <div ref={contentRef} className="drawer-body" tabIndex={0} role="region" aria-label={`${title} content`}>{panelContent}</div>
       </aside>}
     </div>
     <footer className="observatory-footer">
