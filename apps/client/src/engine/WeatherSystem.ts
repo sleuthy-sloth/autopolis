@@ -1,7 +1,7 @@
 /**
  * WeatherSystem — sky/fog/lights per weather state, the rain particle field
  * (budget tiered by device capability), storm lightning flashes, and the
- * animated water surface bob. Owned by CityScene.
+ * continuous water ripples. Owned by CityScene.
  */
 import * as THREE from 'three';
 import { hash2, type SpatialGrid } from '@autopolis/core';
@@ -10,7 +10,7 @@ import type { TileRenderer } from './TileRenderer';
 
 /** Sky gradients per weather state (top → horizon). */
 const SKIES: Record<Weather, { top: string; horizon: string; hemi: number; sun: number; fog: number }> = {
-  clear: { top: '#2f6fb0', horizon: '#cfe4f2', hemi: 1.15, sun: 2.2, fog: 1.0 },
+  clear: { top: '#739aa6', horizon: '#dce5dc', hemi: 1.05, sun: 2.0, fog: 1.0 },
   rain: { top: '#46505c', horizon: '#9aa6b2', hemi: 0.85, sun: 1.4, fog: 1.0 },
   storm: { top: '#1b1f26', horizon: '#59636e', hemi: 0.6, sun: 1.0, fog: 1.0 },
 };
@@ -42,7 +42,6 @@ export class WeatherSystem {
   private readonly rainPoints: THREE.Points;
   private readonly rainVelocities: Float32Array;
   private readonly rainBounds: { x: number; z: number; top: number };
-  private readonly waterDummy = new THREE.Object3D();
   private stormFlash = 0;
 
   constructor(
@@ -143,31 +142,10 @@ export class WeatherSystem {
     }
   }
 
-  /** Gentle waves on water tiles — base + translucent surface layers. */
+  /** Animate a continuous water field without moving terrain. */
   animateWater(elapsed: number, tiles: TileRenderer): void {
-    if (tiles.waterIndices.length === 0) return;
-    const { width, height } = this.getGrid();
-    const cx = width / 2;
-    const cz = height / 2;
-    for (let slot = 0; slot < tiles.waterIndices.length; slot++) {
-      const index = tiles.waterIndices[slot];
-      const x = index % width;
-      const y = Math.floor(index / width);
-      const phase = hash2(x, y, 0x9e37) * Math.PI * 2;
-      const bob = Math.sin(elapsed * 1.6 + phase) * 0.025;
-      this.waterDummy.position.set(x - cx, 0.03 + bob * 0.6, y - cz);
-      this.waterDummy.scale.set(0.94, 0.05, 0.94);
-      this.waterDummy.updateMatrix();
-      tiles.tilesMesh.setMatrixAt(index, this.waterDummy.matrix);
-      if (tiles.waterSurfaceMesh) {
-        this.waterDummy.position.set(x - cx, 0.085 + bob, y - cz);
-        this.waterDummy.scale.set(0.9, 0.02, 0.9);
-        this.waterDummy.updateMatrix();
-        tiles.waterSurfaceMesh.setMatrixAt(slot, this.waterDummy.matrix);
-      }
-    }
-    tiles.tilesMesh.instanceMatrix.needsUpdate = true;
-    if (tiles.waterSurfaceMesh) tiles.waterSurfaceMesh.instanceMatrix.needsUpdate = true;
+    const material = tiles.waterSurfaceMesh?.material as THREE.Material | undefined;
+    if (material?.userData.waterTime) material.userData.waterTime.value = elapsed;
   }
 
   dispose(): void {

@@ -11,41 +11,35 @@ import { modelMaterial, modelSet, type ModelKind } from './models';
 
 /** Ground slab height per tile type (shared with the tile renderer). */
 export function tileHeight(type: TileType, elevation: number): number {
-  switch (type) {
-    case TILE_TYPES.WATER:
-      return 0.06;
-    case TILE_TYPES.SAND:
-      return 0.16 + elevation * 0.35;
-    case TILE_TYPES.STONE:
-      return 0.5 + elevation * 1.1;
-    case TILE_TYPES.FOREST:
-      return 0.34 + elevation * 0.8;
-    case TILE_TYPES.DIRT:
-      return 0.22 + elevation * 0.55;
-    case TILE_TYPES.ROAD:
-      return 0.14;
-    case TILE_TYPES.RAIL:
-      return 0.1;
-    case TILE_TYPES.RESIDENTIAL:
-      return 0.3 + elevation * 0.35;
-    case TILE_TYPES.COMMERCIAL:
-      return 0.4 + elevation * 0.4;
-    case TILE_TYPES.INDUSTRIAL:
-      return 0.45 + elevation * 0.45;
-    case TILE_TYPES.POWER_PLANT:
-      return 1.1;
-    case TILE_TYPES.WATER_TOWER:
-      return 1.1;
-    default:
-      return 0.2 + elevation * 0.55;
-  }
+  if (type === TILE_TYPES.WATER) return 0.06;
+  // A common datum keeps streets, foundations and vegetation connected.
+  // Elevation still reads in natural terrain without creating tall zone pedestals.
+  if (type === TILE_TYPES.STONE) return 0.22 + elevation * 0.35;
+  if (
+    (
+      [
+        TILE_TYPES.ROAD,
+        TILE_TYPES.RAIL,
+        TILE_TYPES.RESIDENTIAL,
+        TILE_TYPES.COMMERCIAL,
+        TILE_TYPES.INDUSTRIAL,
+        TILE_TYPES.POWER_PLANT,
+        TILE_TYPES.WATER_TOWER,
+      ] as TileType[]
+    ).includes(type)
+  )
+    return 0.18;
+  return 0.14 + elevation * 0.12;
 }
 
 /** Tile type → model kind (+ scale range). */
-const BUILDING_MAP: Record<number, { kind: ModelKind; min: number; max: number }> = {
-  [TILE_TYPES.RESIDENTIAL]: { kind: 'house', min: 0.85, max: 1.2 },
-  [TILE_TYPES.COMMERCIAL]: { kind: 'tower', min: 0.9, max: 1.4 },
-  [TILE_TYPES.INDUSTRIAL]: { kind: 'factory', min: 0.9, max: 1.25 },
+const BUILDING_MAP: Record<
+  number,
+  { kind: ModelKind; min: number; max: number }
+> = {
+  [TILE_TYPES.RESIDENTIAL]: { kind: 'house', min: 0.85, max: 1.05 },
+  [TILE_TYPES.COMMERCIAL]: { kind: 'tower', min: 0.85, max: 1.05 },
+  [TILE_TYPES.INDUSTRIAL]: { kind: 'factory', min: 0.85, max: 1.05 },
   [TILE_TYPES.POWER_PLANT]: { kind: 'powerplant', min: 1, max: 1 },
   [TILE_TYPES.WATER_TOWER]: { kind: 'watertower', min: 1, max: 1 },
 };
@@ -62,21 +56,63 @@ export function buildStructures(grid: SpatialGrid): Structures {
   const cx = width / 2;
   const cz = height / 2;
 
-  // Count instances per kind.
-  const counts = new Map<ModelKind, number>();
-  const record = (kind: ModelKind): void => {
-    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  const kindAt = (x: number, y: number, type: TileType): ModelKind | null => {
+    const variation = hash2(x, y, grid.seed ^ 0x419a);
+    if (type === TILE_TYPES.RESIDENTIAL)
+      return variation < 0.25
+        ? 'apartment'
+        : variation < 0.6
+          ? 'villa'
+          : 'house';
+    if (type === TILE_TYPES.COMMERCIAL)
+      return variation < 0.4 ? 'shop' : 'tower';
+    if (type === TILE_TYPES.FOREST)
+      return variation < 0.65 ? 'broadleaf' : 'tree';
+    if (type === TILE_TYPES.ROAD || type === TILE_TYPES.RAIL) {
+      const vertical =
+        grid.get(x, y - 1) === type || grid.get(x, y + 1) === type;
+      const horizontal =
+        grid.get(x - 1, y) === type || grid.get(x + 1, y) === type;
+      if (type === TILE_TYPES.RAIL) {
+        const north = grid.get(x, y - 1) === type,
+          south = grid.get(x, y + 1) === type;
+        const east = grid.get(x + 1, y) === type,
+          west = grid.get(x - 1, y) === type;
+        if (Number(north) + Number(south) + Number(east) + Number(west) > 2)
+          return 'railCross';
+        if (north && east) return 'railNE';
+        if (north && west) return 'railNW';
+        if (south && east) return 'railSE';
+        if (south && west) return 'railSW';
+        return vertical ? 'railNS' : 'railEW';
+      }
+      if (vertical && horizontal) {
+        const openCorners = [
+          [-1, -1],
+          [-1, 1],
+          [1, -1],
+          [1, 1],
+        ].filter(([dx, dy]) => grid.get(x + dx, y + dy) !== type).length;
+        return openCorners >= 2 ? 'roadCross' : 'roadPlain';
+      }
+      return vertical ? 'roadNS' : 'roadEW';
+    }
+    return BUILDING_MAP[type]?.kind ?? null;
   };
-  grid.forEach((_x, _y, type) => {
-    const entry = BUILDING_MAP[type];
-    if (entry) record(entry.kind);
-    else if (type === TILE_TYPES.FOREST) record('tree');
+  const counts = new Map<ModelKind, number>();
+  grid.forEach((x, y, type) => {
+    const kind = kindAt(x, y, type);
+    if (kind) counts.set(kind, (counts.get(kind) ?? 0) + 1);
   });
 
   const meshes: THREE.InstancedMesh[] = [];
   const meshOf = (kind: ModelKind): THREE.InstancedMesh => {
     const count = counts.get(kind) ?? 0;
-    const mesh = new THREE.InstancedMesh(models[kind], material, Math.max(count, 1));
+    const mesh = new THREE.InstancedMesh(
+      models[kind].clone(),
+      material,
+      Math.max(count, 1),
+    );
     mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -115,21 +151,37 @@ export function buildStructures(grid: SpatialGrid): Structures {
 
   const counters = new Map<ModelKind, number>();
   grid.forEach((x, y, type, elevation) => {
+    const kind = kindAt(x, y, type);
+    if (!kind) return;
+    const mesh = meshByKind.get(kind)!;
+    const i = counters.get(kind) ?? 0;
+    counters.set(kind, i + 1);
     const entry = BUILDING_MAP[type];
+    const natural = type === TILE_TYPES.FOREST;
+    const s = natural
+      ? 0.75 + hash2(x, y, seed ^ 0x22f1) * 0.5
+      : entry
+        ? entry.min + hash2(x, y, seed ^ 0x51ed) * (entry.max - entry.min)
+        : 1;
+    // Orient entrances toward adjacent roads; preserve connected street geometry.
+    let rot = natural ? hash2(x, y, seed ^ 0x77aa) * Math.PI * 2 : 0;
     if (entry) {
-      const mesh = meshByKind.get(entry.kind)!;
-      const i = counters.get(entry.kind) ?? 0;
-      counters.set(entry.kind, i + 1);
-      const s = entry.min + hash2(x, y, seed ^ 0x51ed) * (entry.max - entry.min);
-      place(mesh, i, x - cx, tileHeight(type, elevation), y - cz, s, 0, 0x51ed);
-    } else if (type === TILE_TYPES.FOREST) {
-      const mesh = meshByKind.get('tree')!;
-      const i = counters.get('tree') ?? 0;
-      counters.set('tree', i + 1);
-      const s = 0.75 + hash2(x, y, seed ^ 0x22f1) * 0.6;
-      const rot = hash2(x, y, seed ^ 0x77aa) * Math.PI * 2;
-      place(mesh, i, x - cx, tileHeight(type, elevation), y - cz, s, rot, 0x22f1);
+      if (grid.get(x + 1, y) === TILE_TYPES.ROAD) rot = Math.PI / 2;
+      else if (grid.get(x - 1, y) === TILE_TYPES.ROAD) rot = -Math.PI / 2;
+      else if (grid.get(x, y - 1) === TILE_TYPES.ROAD) rot = Math.PI;
     }
+    const offsetX = natural ? (hash2(x, y, seed ^ 0x981a) - 0.5) * 0.12 : 0;
+    const offsetZ = natural ? (hash2(x, y, seed ^ 0x183b) - 0.5) * 0.12 : 0;
+    place(
+      mesh,
+      i,
+      x - cx + offsetX,
+      tileHeight(type, elevation),
+      y - cz + offsetZ,
+      s,
+      rot,
+      0x51ed,
+    );
   });
 
   for (const mesh of meshes) {
