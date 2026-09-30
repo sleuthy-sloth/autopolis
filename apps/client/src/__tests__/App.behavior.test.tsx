@@ -28,9 +28,11 @@ describe('real App city lifecycle', () => {
   it('cancels replacement without sending reset and confirms it once', () => {
     const h = render(<App />); const ws = MockWebSocket.instances.at(-1)!;
     act(() => { ws.open(); ws.message(snapshot()); });
+    if (!Array.from(h.container.querySelectorAll('button')).some(b => b.textContent === 'New city')) act(() => button(h.container, 'City').click());
     act(() => button(h.container, 'New city').click());
     act(() => button(h.container.querySelector('dialog')!, 'Cancel').click());
     expect(ws.sent).toEqual([]);
+    if (!Array.from(h.container.querySelectorAll('button')).some(b => b.textContent === 'New city')) act(() => button(h.container, 'City').click());
     act(() => button(h.container, 'New city').click());
     act(() => button(h.container.querySelector('dialog')!, 'New city').click());
     expect(ws.sent.map(s => JSON.parse(s))).toEqual([{ type: 'reset' }]);
@@ -39,10 +41,46 @@ describe('real App city lifecycle', () => {
   it('does not load when the connection drops during confirmation', () => {
     const h = render(<App />); const ws = MockWebSocket.instances.at(-1)!;
     act(() => { ws.open(); ws.message(snapshot()); });
+    act(() => button(h.container, 'City').click());
     act(() => button(h.container, 'Load saved city').click());
     act(() => ws.closeRemote());
     act(() => button(h.container.querySelector('dialog')!, 'Load saved city').click());
     expect(ws.sent).toEqual([]);
+    h.unmount();
+  });
+});
+
+describe('App observatory integration', () => {
+  it('opens first-use help, dismisses it, and makes it reopenable', () => {
+    const h = render(<App />);
+    expect(h.container.querySelector('.help-panel')).not.toBeNull();
+    act(() => button(h.container, 'Explore the city').click());
+    expect(h.container.querySelector('.help-panel')).toBeNull();
+    act(() => button(h.container, 'Help').click());
+    expect(h.container.querySelector('.help-panel')).not.toBeNull();
+    h.unmount();
+  });
+  it('keeps last-known city readable while disabling disconnected actions and overlays', () => {
+    const h = render(<App />); const ws = MockWebSocket.instances.at(-1)!;
+    act(() => { ws.open(); ws.message(snapshot()); });
+    act(() => button(h.container, 'Intervene').click());
+    expect(button(h.container, 'Power plant').matches(':disabled')).toBe(false);
+    act(() => button(h.container, 'Power').click());
+    act(() => ws.closeRemote());
+    expect(button(h.container, 'Power plant').matches(':disabled')).toBe(true);
+    expect(button(h.container, 'Power').disabled).toBe(true);
+    expect(button(h.container, 'Natural').getAttribute('aria-pressed')).toBe('true');
+    expect(h.container.querySelector('.metrics')?.textContent).toContain('100');
+    expect(h.container.textContent).toMatch(/last received/i);
+    h.unmount();
+  });
+  it('closes a drawer with Escape and returns focus to its opener', () => {
+    const h = render(<App />);
+    const trigger = button(h.container, 'Stories'); trigger.focus();
+    act(() => trigger.click());
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(h.container.querySelector('.drawer')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
     h.unmount();
   });
 });
