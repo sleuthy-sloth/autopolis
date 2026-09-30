@@ -98,6 +98,16 @@ describe('World agent integration', () => {
     expect(w.treasury).toBeGreaterThan(start);
   });
 
+  it('clears save metadata when replacing a city with a new seed', () => {
+    const w = new World(1337);
+    w.lastSavedTick = 42;
+    w.lastSavedAt = '2026-09-29T12:00:00Z';
+    w.reset();
+    expect(w.lastSavedTick).toBeNull();
+    expect(w.lastSavedAt).toBeNull();
+    expect(w.stateMessage().lastSavedTick).toBeNull();
+  });
+
   it('resets the city ledger on reset', () => {
     const w = worldAt(200);
     w.applyAction(

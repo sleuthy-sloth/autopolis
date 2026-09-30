@@ -19,6 +19,16 @@ describe('replacement confirmation', () => {
     expect(h.props.onConfirm).not.toHaveBeenCalled();
     h.unmount();
   });
+  it('wraps keyboard focus between the two confirmation actions', () => {
+    const h = setup();
+    const cancel = button(h.container, 'Cancel');
+    const confirm = button(h.container, 'New city');
+    act(() => cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(confirm);
+    act(() => confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(cancel);
+    h.unmount();
+  });
   it('confirmation emits the replacement once', () => {
     const h = setup();
     act(() => button(h.container, 'New city').click());
